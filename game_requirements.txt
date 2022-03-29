@@ -1,0 +1,50 @@
+*) Each player starts with one planet
+*) Each planet has a ship production value 0-10
+*) Home planets however start with 10
+*) Each non-home planet is neutral until conqured
+*) Each planet generates ships according to it's production value
+*) Neutral planets produce ships at 50% rate
+*) Planets also have a defence rating 
+
+TURNS:
+Game is organized into turns.  Turns are in two phases:
+  1. Player enters commands
+  2a. commands Processed
+  2b. Fleets Created
+  2c. Combat occurs
+  2d. Planets changes hands
+  2e. Planet Production occurs
+  
+Game is over when one player owns >= X% of planets (60%)
+
+Phase 1. Planets add ship to their local fleets
+Phase 2. Players send ships from a planet they own to a destination via commands
+Phase 2a: Commands are processed, creating fleets etc
+Phase 3. Ships ships in transit are advanced towards their destination, resulting in battle if they do arrive
+         and the destination is not friendly
+
+TRAVEL:
+Ships went sent travel three squares per turn.  Distance will be computed with distance formulate.
+Once Sent, ships are not visible to any  player (or other ships) until they arrive, all planets include fleet are visible to all players
+Fleets that arrive to unaligned planet will engage in battle
+
+
+Battle is very simple, each ship will role a six sided die and score a hit with six. Shots happens simultaneously and a hit will remove a ship from the the side. Battle continues until one fleet wins.  Defense value are 'bonus ships' that cannot be destroyed but contribute to defending 
+
+Players may ally.  If allied, ships will combine attacks.  However, only one players's ship may be on the plan at one time
+
+
+Development:
+1. Design data model.
+  table player, game, planet, fleet, alliance, commands
+    
+
+2. Figuring out input/output
+  2a: display the playfield 
+    SELECT Playfield();
+    SELECT Planets();
+  2b: accept user input (example, .csv for commands)
+  
+3. Set of routines to update the gamestep
+  example: everyone submits input, next phase
+  SELECT Phase3();
