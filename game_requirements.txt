@@ -1,10 +1,10 @@
 *) Each player starts with one planet
 *) Each planet has a ship production value 0-10
-*) Home planets however start with 10
+*) Home planets however start with production 10, and 10 ships
 *) Each non-home planet is neutral until conqured
 *) Each planet generates ships according to it's production value
 *) Neutral planets produce ships at 50% rate
-*) Planets also have a defence rating 
+*) Planets also have a defence rating between 5 and 20
 
 TURNS:
 Game is organized into turns.  Turns are in two phases:

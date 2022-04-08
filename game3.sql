@@ -18,6 +18,16 @@
  *    Vendor Provide Tool (SQL Server Enterprise Studio, PGAdmin)
  *    Cross Database (Aqua Data Studio,  DBVisualizer), $$$, slower
  *
+ * Today we are going to talk about SDLC, code management, all kinds of stuff
+ *   with some cool military analogies
+
+
+
+ *
+ * Hopefully we were all able to get github installed, desktop with project set
+ * up
+ *
+ *
  */
 
 
@@ -72,8 +82,11 @@ CREATE TABLE Game
 
 CREATE TABLE PlayerGame
 (
-  PlayerName TEXT REFERENCES Player,
-  GameId INT REFERENCES Game,
+  PlayerName TEXT REFERENCES Player
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+
+  GameId INT REFERENCES Game ON DELETE CASCADE,
   
   HomePlanetId INT /* REFERENCES Planet(PlanetId) */,
   Ally TEXT,
@@ -114,12 +127,12 @@ CREATE TABLE Planet
   Defence INT,
 
   Ships INT,
-  StartingShips INT,
   
   XPosition INT,
   YPosition INT,
   
-  FOREIGN KEY(GameId, Owner) REFERENCES PlayerGame(GameId, PlayerName),
+  FOREIGN KEY(GameId, Owner) REFERENCES PlayerGame(GameId, PlayerName)
+   ON UPDATE CASCADE ON DELETE CASCADE,
   UNIQUE(GameId, XPosition, YPosition)
 );
 
@@ -356,7 +369,9 @@ CREATE OR REPLACE FUNCTION DiceRoller(
   _DiceHighValue INT,
   _NumberOfDices INT) RETURNS SETOF INT AS
 $$
-  SELECT ((random() * (_DiceHighValue + 1) - _DiceLowValue) + 0.5)::int 
+  SELECT
+    ((random() * ((_DiceHighValue - _DiceLowValue) + 1) + 0.5))::INT
+      + _DiceLowValue - 1
   FROM generate_series(1, _NumberOfDices);  
 $$ LANGUAGE SQL;
 
@@ -473,7 +488,6 @@ BEGIN
           Production,
           Defence,
           Ships,
-          StartingShips,
           XPosition,
           YPosition)
         VALUES (
@@ -482,7 +496,6 @@ BEGIN
           NULL,
           DiceRoller(0, 11, 1), 
           DiceRoller(5, 20, 1),
-          0,
           0,
           DiceRoller(_PlayFieldWidth, 1),
           DiceRoller(_PlayFieldHeight, 1));
@@ -524,8 +537,11 @@ BEGIN
       AND Owner IS NULL
     ORDER BY random() LIMIT 1;  
 
-    /* Assign the owener to that planet */
-    UPDATE Planet SET Owner = pg.PlayerName
+    /* Assign the owner to that planet */
+    UPDATE Planet SET
+      Owner = pg.PlayerName,
+      Production = 10,
+      Ships = 10
     WHERE 
       PlanetId = _PlanetId;
       
