@@ -20,9 +20,10 @@
  *
  * Today we are going to talk about SDLC, code management, all kinds of stuff
  *   with some cool military analogies
-
-
-
+ *
+ * It's nollig time
+ *
+ * one more song, need to get into coding mode :-).
  *
  * Hopefully we were all able to get github installed, desktop with project set
  * up
@@ -42,10 +43,11 @@
  *
  * next week:
  *
- * Game intialization  (Take a list of payers)
+ * Game intialization  (Take a list of payers)  -- working
  *   Verify at least 2 players
  *   Generate playfield
  *   Insert game record
+ *
  * Turn/phase processing
  * Processing commands into fleets (function / procedure)
  *   Distance function
@@ -130,11 +132,20 @@ CREATE TABLE Planet
   
   XPosition INT,
   YPosition INT,
+
+
+  DisplayCharacter TEXT/* NOT NULL CHECK (Length(DisplayCharacter) = 1) */,
+
   
   FOREIGN KEY(GameId, Owner) REFERENCES PlayerGame(GameId, PlayerName)
    ON UPDATE CASCADE ON DELETE CASCADE,
+
+
+  FOREIGN KEY(GameId) REFERENCES Game ON UPDATE CASCADE ON DELETE CASCADE,
+
   UNIQUE(GameId, XPosition, YPosition)
 );
+
 
 ALTER TABLE PlayerGame ADD FOREIGN KEY(HomePlanetId) REFERENCES 
   Planet(PlanetId);
@@ -489,7 +500,8 @@ BEGIN
           Defence,
           Ships,
           XPosition,
-          YPosition)
+          YPosition,
+          DisplayCharacter)
         VALUES (
           DEFAULT,
           _GameId,
@@ -498,7 +510,8 @@ BEGIN
           DiceRoller(5, 20, 1),
           0,
           DiceRoller(_PlayFieldWidth, 1),
-          DiceRoller(_PlayFieldHeight, 1));
+          DiceRoller(_PlayFieldHeight, 1),
+          chr(i + 47));
       EXCEPTION WHEN others THEN
         /* XXX: Does not account for specific failure condition */
         RAISE WARNING 'Got % while inserting planet during iteraton %', SQLERRM, i;
@@ -554,7 +567,46 @@ BEGIN
 END;
 $$ LANGUAGE PLPGSQL;
 
+CREATE OR REPLACE FUNCTION ShowPlayfield(
+  _GameId INT) RETURNS SETOF TEXT AS
+$$
+DECLARE
+  g Game;
+  _DisplayCharacter TEXT;
+  _row INT;
+  _column INT;
 
+  _DisplayRow TEXT;
+BEGIN
+  SELECT *  INTO g
+  FROM Game WHERE GameId = _GameId;
+
+  FOR _row in 1..g.PlayFieldHeight
+  LOOP
+    _DisplayRow := '';
+
+    FOR _column in 1..g.PlayFieldWidth
+    LOOP
+      SELECT
+        DisplayCharacter INTO _DisplayCharacter
+      FROM Planet
+      WHERE
+        GameId = _GameId
+        AND XPosition = _column
+        AND YPosition = _row;
+
+      IF NOT FOUND
+      THEN
+        _DisplayCharacter := '.';
+      END IF;
+
+      _DisplayRow := _DisplayRow || _DisplayCharacter;
+    END LOOP;
+
+    RETURN NEXT _DisplayRow;
+  END LOOP;
+END;
+$$ LANGUAGE PLPGSQL;
 
  
 
