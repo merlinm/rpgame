@@ -28,6 +28,14 @@
  * Hopefully we were all able to get github installed, desktop with project set
  * up
  *
+ * TODO:
+ *   enhance playfield to show planet listing
+ *   commands?
+ *
+ *                                FUN SPECTRUM
+ *   <---------------------------------------------------------------------->
+ *   Less fun                                                         More fun
+ *      security                                                    graphics
  *
  */
 
@@ -57,6 +65,11 @@
  *
  * Playfield display function
  * welcome new people
+ *
+ *  INSERT INTO Command...
+ *  Fog of war: no visibility to commands
+ *    Option #1: honor system, assume nobody inspects command or fleet table
+ *    Option #2: database security
  *
  */
 
@@ -125,7 +138,6 @@ CREATE TABLE Planet
        abort the query.
    */
 
-
   Defence INT,
 
   Ships INT,
@@ -143,7 +155,9 @@ CREATE TABLE Planet
 
   FOREIGN KEY(GameId) REFERENCES Game ON UPDATE CASCADE ON DELETE CASCADE,
 
-  UNIQUE(GameId, XPosition, YPosition)
+  UNIQUE(GameId, XPosition, YPosition),
+
+  UNIQUE(GameId, DisplayCharacter)
 );
 
 
@@ -606,7 +620,94 @@ BEGIN
     RETURN NEXT _DisplayRow;
   END LOOP;
 END;
-$$ LANGUAGE PLPGSQL;
+$$ LANGUAGE PLPGSQL SECURITY DEFINER;
+
+/*
+ * Creates a command. Runs as superuser so that players can execute the function
+ * without necessarily seeing the contents of the command table.
+ SELECT AddCommand('X', 'z', 5);
+ *
+ * Adds command to command table
+ * Validate the inputs
+ *   Not enough ships
+ *   Source planet not owned by command creator
+ *   Ships on planet but allocated to another command
+ *   Source planet does not exist
+ *   Destination planet does not exist
+ *   Player does not exist
+ *   Game does not exist
+ *   Player and and game exist, but player is attached to game
+ *   Planet is not attached to game
+ *
+ * If GameId is not supplied, the system will look up games attached to the
+ * player, and, if there is only one active game, resove it.
+ *
+ *  #1 players not to play more than one game at a time
+ *  #2 only one game at a time period
+ *
+ */
+
+CREATE OR REPLACE FUNCTION AddCommand(
+  _SourceDisplayCharacter TEXT,
+  _DestinationDisplayCharacter TEXT,
+  _NumberOfShips INT,
+  _GameId INT DEFAULT NULL,
+  _Player TEXT DEFAULT current_user) RETURNS VOID AS
+$$
+DECLARE
+  _PlayerGameCount INT;
+BEGIN
+  /* Resolve gameid if not explicitly passed. */
+  IF _GameId IS NULL
+  THEN
+    /* Is the user playing 2 or more active games? If so, abort */
+    SELECT
+      COUNT(*), min(_GameId)
+      INTO _PlayerGameCount, _GameId
+    FROM PlayerGame pg
+    JOIN Game USING(GameId)
+    WHERE
+      PlayerName = _Player
+      AND Ended IS NULL;
+
+    IF _PlayerGameCount = 0
+    THEN
+      RAISE EXCEPTION 'Player % is not involved in any games', _Player;
+    END IF;
+
+    IF _PlayerGameCount >= 2
+    THEN
+      RAISE EXCEPTION
+        'Player % is attached to multiple games, game id must be supplied',
+        _Player;
+    END IF;
+  END IF;
+
+  INSERT INTO Command(
+    SourcePlanetId,
+    DestinationPlanetId,
+    PlayerName,
+    NumberOfShips)
+  VALUES (
+    (
+      SELECT PlanetId
+      FROM Planet
+      WHERE
+        DisplayCharacter = _SourceDisplayCharacter
+        AND GameId = _GameId
+    ),
+    (
+      SELECT PlanetId
+      FROM Planet
+      WHERE
+        DisplayCharacter = _DestinationDisplayCharacter
+        AND GameId = _GameId
+    ),
+    _Player,
+    _NumberOfShips
+  );
+END;
+$$ LANGUAGE PLPGSQL SECURITY DEFINER;
 
  
 
