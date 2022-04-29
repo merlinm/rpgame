@@ -138,7 +138,7 @@ CREATE TABLE Planet
        abort the query.
    */
 
-  Defence INT,
+  Defense INT,
 
   Ships INT,
   
@@ -511,7 +511,7 @@ BEGIN
           GameId,
           Owner,
           Production,
-          Defence,
+          Defense,
           Ships,
           XPosition,
           YPosition,
@@ -581,8 +581,47 @@ BEGIN
 END;
 $$ LANGUAGE PLPGSQL;
 
+CREATE OR REPLACE FUNCTION ResolveGameId(
+  _Player TEXT DEFAULT current_user,
+  GameId OUT INT) RETURNS INT AS
+$$
+DECLARE
+  _PlayerGameCount INT;
+  _GameId INT;
+BEGIN
+  /* Is the user playing 2 or more active games? If so, abort */
+  SELECT
+    COUNT(*), min(g.GameId)
+    INTO _PlayerGameCount, _GameId
+  FROM PlayerGame pg
+  JOIN Game g USING(GameId)
+  WHERE
+    PlayerName = _Player
+    AND Ended IS NULL;
+
+  IF _PlayerGameCount = 0
+  THEN
+    RAISE EXCEPTION 'Player % is not involved in any games', _Player;
+  END IF;
+
+  IF _PlayerGameCount >= 2
+  THEN
+    RAISE EXCEPTION
+      'Player % is attached to multiple games, game id must be supplied',
+      _Player;
+  END IF;
+
+  GameId := _GameId;
+END;
+$$ LANGUAGE PLPGSQL;
+
+
+
+
+
 CREATE OR REPLACE FUNCTION ShowPlayfield(
-  _GameId INT) RETURNS SETOF TEXT AS
+  _Player TEXT DEFAULT current_user,
+  _GameId INT DEFAULT NULL) RETURNS SETOF TEXT AS
 $$
 DECLARE
   g Game;
@@ -592,6 +631,12 @@ DECLARE
 
   _DisplayRow TEXT;
 BEGIN
+  /* Resolve gameid if not explicitly passed. */
+  IF _GameId IS NULL
+  THEN
+    _GameId := ResolveGameId(_Player);
+  END IF;
+
   SELECT *  INTO g
   FROM Game WHERE GameId = _GameId;
 
@@ -619,6 +664,25 @@ BEGIN
 
     RETURN NEXT _DisplayRow;
   END LOOP;
+
+  /* XXX: lazy; printing planet list after map
+   * blank line first
+   */
+
+  RETURN QUERY
+    /* header row */
+    SELECT ''
+    UNION ALL SELECT 'Planet    Owner            # Ships    Production    Defense'
+    UNION ALL SELECT
+      format(
+        '%s    %s    %s    %s    %s',
+        rpad(DisplayCharacter, 6, ' '),
+        rpad(COALESCE(Owner, ''), 13, ' '),
+        lpad(Ships::TEXT, 7, ' '),
+        lpad(Production::TEXT, 10, ' '),
+        lpad(Defense::TEXT, 7, ' '))
+    FROM Planet
+    WHERE GameId = _GameId;
 END;
 $$ LANGUAGE PLPGSQL SECURITY DEFINER;
 
@@ -660,27 +724,7 @@ BEGIN
   /* Resolve gameid if not explicitly passed. */
   IF _GameId IS NULL
   THEN
-    /* Is the user playing 2 or more active games? If so, abort */
-    SELECT
-      COUNT(*), min(_GameId)
-      INTO _PlayerGameCount, _GameId
-    FROM PlayerGame pg
-    JOIN Game USING(GameId)
-    WHERE
-      PlayerName = _Player
-      AND Ended IS NULL;
-
-    IF _PlayerGameCount = 0
-    THEN
-      RAISE EXCEPTION 'Player % is not involved in any games', _Player;
-    END IF;
-
-    IF _PlayerGameCount >= 2
-    THEN
-      RAISE EXCEPTION
-        'Player % is attached to multiple games, game id must be supplied',
-        _Player;
-    END IF;
+    PERFORM ResolveGameId(_Player);
   END IF;
 
   INSERT INTO Command(

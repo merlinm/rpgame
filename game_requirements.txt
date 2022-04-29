@@ -23,6 +23,10 @@ Phase 2a: Commands are processed, creating fleets etc
 Phase 3. Ships ships in transit are advanced towards their destination, resulting in battle if they do arrive
          and the destination is not friendly
 
+FOG OF WAR:
+Players can issue commands, but can not see commands of pother players.
+Players can not see fleets in transit, not even their own
+
 TRAVEL:
 Ships went sent travel three squares per turn.  Distance will be computed with distance formulate.
 Once Sent, ships are not visible to any  player (or other ships) until they arrive, all planets include fleet are visible to all players
