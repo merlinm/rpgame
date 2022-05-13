@@ -40,7 +40,6 @@
  */
 
 
-
 /*
  *
  * WELCOME NEW FACES !!  ---
@@ -52,19 +51,20 @@
  * next week:
  *
  * Game intialization  (Take a list of payers)  -- working
- *   Verify at least 2 players
- *   Generate playfield
- *   Insert game record
+ *   Verify at least 2 players  *
+ *   Generate playfield *
+ *   Insert game record *
  *
- * Turn/phase processing
- * Processing commands into fleets (function / procedure)
- *   Distance function
- * Process fleets in transit
+ * Turn/phase processing  on deck
+ * Processing commands into fleets (function / procedure) on deck
+ *   Distance function *
+ * Process fleets in transit on deck
  * Battles, ship to planet combat
- *  Dice roller
+ *  Dice roller *
  *
- * Playfield display function
- * welcome new people
+ * Security model *
+ *
+ * Playfield display function *
  *
  *  INSERT INTO Command...
  *  Fog of war: no visibility to commands
@@ -618,7 +618,11 @@ $$ LANGUAGE PLPGSQL;
 
 
 
-
+/*
+ * how do we align display horizontally? hmm.
+ *
+ * let's do that today!
+ */
 CREATE OR REPLACE FUNCTION ShowPlayfield(
   _Player TEXT DEFAULT current_user,
   _GameId INT DEFAULT NULL) RETURNS SETOF TEXT AS
@@ -630,6 +634,13 @@ DECLARE
   _column INT;
 
   _DisplayRow TEXT;
+
+  _DisplayHeight INT;
+
+  _PlanetDisplay TEXT[];
+  _MapDisplay TEXT[];
+
+  _DisplayRows TEXT[];
 BEGIN
   /* Resolve gameid if not explicitly passed. */
   IF _GameId IS NULL
@@ -637,8 +648,22 @@ BEGIN
     _GameId := ResolveGameId(_Player);
   END IF;
 
-  SELECT *  INTO g
+  SELECT * INTO g
   FROM Game WHERE GameId = _GameId;
+
+  -- max, greatest(), IF/ELSE plpgsql, CASE
+  SELECT INTO _DisplayHeight
+    greatest(
+      (
+        /* reserve an extra row for header */
+        SELECT COUNT(*) + 1
+        FROM Planet
+        WHERE GameId = _GameId
+      ),
+      (
+        g.PlayFieldHeight
+      )
+    );
 
   FOR _row in 1..g.PlayFieldHeight
   LOOP
@@ -662,17 +687,19 @@ BEGIN
       _DisplayRow := _DisplayRow || _DisplayCharacter;
     END LOOP;
 
-    RETURN NEXT _DisplayRow;
+    _MapDisplay := _MapDisplay || _DisplayRow;
   END LOOP;
 
   /* XXX: lazy; printing planet list after map
    * blank line first
    */
 
-  RETURN QUERY
+  SELECT INTO _PlanetDisplay
+    array_agg(row)
+  FROM
+  (
     /* header row */
-    SELECT ''
-    UNION ALL SELECT 'Planet    Owner            # Ships    Production    Defense'
+    SELECT 'Planet    Owner            # Ships    Production    Defense'  AS row
     UNION ALL SELECT
       format(
         '%s    %s    %s    %s    %s',
@@ -682,7 +709,23 @@ BEGIN
         lpad(Production::TEXT, 10, ' '),
         lpad(Defense::TEXT, 7, ' '))
     FROM Planet
-    WHERE GameId = _GameId;
+    WHERE GameId = _GameId
+  ) q;
+
+  RETURN QUERY SELECT
+    format('%s   %s',
+      COALESCE(m.v, lpad('', g.PlayFieldWidth, ' ')),
+      p.v)
+  FROM generate_series(1, _DisplayHeight) DisplayRow
+  LEFT JOIN
+  (
+    SELECT * FROM unnest(_MapDisplay) WITH ORDINALITY v
+  ) m ON DisplayRow = m.Ordinality
+  LEFT JOIN
+  (
+    SELECT * FROM unnest(_PlanetDisplay) WITH ORDINALITY v
+  ) p ON DisplayRow = p.Ordinality;
+
 END;
 $$ LANGUAGE PLPGSQL SECURITY DEFINER;
 
