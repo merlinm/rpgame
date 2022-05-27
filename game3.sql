@@ -58,7 +58,7 @@
  * Turn/phase processing  on deck
  * Processing commands into fleets (function / procedure) on deck
  *   Distance function *
- * Process fleets in transit on deck
+ * Process fleets in transit on deck <-- today
  * Battles, ship to planet combat
  *  Dice roller *
  *
@@ -845,10 +845,22 @@ $$ LANGUAGE PLPGSQL SECURITY DEFINER;
 CREATE OR REPLACE FUNCTION ShowCommands(
   _Player TEXT DEFAULT current_user,
   _GameId INT DEFAULT NULL) RETURNS SETOF TEXT AS
+$$
+
+$$ LANGUAGE PLPGSQL;
 
 
 CREATE OR REPLACE FUNCTION CommandsDone(
   _Player TEXT DEFAULT current_user,
   _GameId INT DEFAULT NULL) RETURNS SETOF TEXT AS
+$$
+
+$$ LANGUAGE PLPGSQL;
+
+
+/* when commands are done, they will be processed and rendered to fleets.
+ *
+ */
+CREATE OR REPLACE FUNCTION ProcessCommands(
 
 
