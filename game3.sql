@@ -752,6 +752,17 @@ $$ LANGUAGE PLPGSQL SECURITY DEFINER;
  *  #1 players not to play more than one game at a time
  *  #2 only one game at a time period
  *
+ * Commands are checked for validity immediately, any command that can be
+ * processed due to being in violation of game rules are returned in error.
+ *
+ *  Commands must:
+ *    not send more ships than are available in the planet, with consideration
+ *     for allocated ships.
+ *    send from a planet owned by the issuing player
+ *    must have a valid distination
+ *    source and destination should not be the same
+ *    must send at least one ship
+ *
  */
 
 CREATE OR REPLACE FUNCTION AddCommand(
@@ -763,12 +774,42 @@ CREATE OR REPLACE FUNCTION AddCommand(
 $$
 DECLARE
   _PlayerGameCount INT;
+  p Planet;
+
+  _AllocatedShips INT;
 BEGIN
   /* Resolve gameid if not explicitly passed. */
   IF _GameId IS NULL
   THEN
     PERFORM ResolveGameId(_Player);
   END IF;
+ *    not send more ships than are available in the planet, with consideration
+ *     for allocated ships.
+ *    must have a valid distination
+ *    source and destination should not be the same
+ *    must send at least one ship
+
+  SELECT *
+  FROM Planet
+  WHERE
+    GameId = _GameId
+    AND Owner = _Player
+    AND DisplayCharacter = _SourceDisplayCharacter;
+
+  IF NOT FOUND
+  THEN
+    RAISE EXCEPTION 'Player % does not own planet % for game %',
+      _Player, _SourceDisplayCharacter, _GameId;
+  END IF;
+
+  /* ship count validation: ships on planet (discounted for allocated ships),
+   * must be greater than or equal to command number of ships
+   */
+  SELECT INTO _AllocatedShips
+    SUM(NumberOfShips)
+  FROM Command
+  WHERE
+    SourcePlanetId = p.Planet;
 
   INSERT INTO Command(
     SourcePlanetId,
@@ -796,6 +837,18 @@ BEGIN
 END;
 $$ LANGUAGE PLPGSQL SECURITY DEFINER;
 
- 
+
+/* Show commands for a player that have entered but not processed.
+ *
+ * XXX: delete command function needed?
+ */
+CREATE OR REPLACE FUNCTION ShowCommands(
+  _Player TEXT DEFAULT current_user,
+  _GameId INT DEFAULT NULL) RETURNS SETOF TEXT AS
+
+
+CREATE OR REPLACE FUNCTION CommandsDone(
+  _Player TEXT DEFAULT current_user,
+  _GameId INT DEFAULT NULL) RETURNS SETOF TEXT AS
 
 
