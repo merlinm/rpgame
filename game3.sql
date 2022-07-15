@@ -36,6 +36,8 @@
  *   <---------------------------------------------------------------------->
  *   Less fun                                                         More fun
  *      security                                                    graphics
+ *   PI PLANNING                                                      sql class
+ *   launch projects
  *
  */
 
@@ -182,8 +184,20 @@ CREATE TABLE Command
   PlayerName TEXT,
   
   NumberOfShips INT,
+
+  Processed TIMESTAMPTZ,
+
   PRIMARY KEY(PlayerName, SourcePlanetId, DestinationPlanetId)
 );
+
+
+CREATE OR REPLACE VIEW vw_PendingCommands AS
+  SELECT
+    *,
+    GameId
+  FROM Command
+  --JOIN Game ON Command
+  WHERE Processed IS NULL;
 
 
 /*
@@ -408,6 +422,7 @@ $$ LANGUAGE SQL;
 
 /*
   \IIIII/ Interface                 time and money
+----API------
    \BBB/  Business Logic
     \B/   Database Procedures
      D    Data Model
@@ -729,138 +744,17 @@ BEGIN
 END;
 $$ LANGUAGE PLPGSQL SECURITY DEFINER;
 
+
+
 /*
- * Creates a command. Runs as superuser so that players can execute the function
- * without necessarily seeing the contents of the command table.
- SELECT AddCommand('X', 'z', 5);
- *
- * Adds command to command table
- * Validate the inputs
- *   Not enough ships
- *   Source planet not owned by command creator
- *   Ships on planet but allocated to another command
- *   Source planet does not exist
- *   Destination planet does not exist
- *   Player does not exist
- *   Game does not exist
- *   Player and and game exist, but player is attached to game
- *   Planet is not attached to game
- *
- * If GameId is not supplied, the system will look up games attached to the
- * player, and, if there is only one active game, resove it.
- *
- *  #1 players not to play more than one game at a time
- *  #2 only one game at a time period
- *
- * Commands are checked for validity immediately, any command that can be
- * processed due to being in violation of game rules are returned in error.
- *
- *  Commands must:
- *    not send more ships than are available in the planet, with consideration
- *     for allocated ships.
- *    send from a planet owned by the issuing player
- *    must have a valid distination
- *    source and destination should not be the same
- *    must send at least one ship
- *
+ * When commands are done, they will be processed and rendered to fleets.
+    2a. Commands Processed (deduct allocated ships from planet, delete commands)
+    2b. Fleets Created (create fleet record)
  */
-
-CREATE OR REPLACE FUNCTION AddCommand(
-  _SourceDisplayCharacter TEXT,
-  _DestinationDisplayCharacter TEXT,
-  _NumberOfShips INT,
-  _GameId INT DEFAULT NULL,
-  _Player TEXT DEFAULT current_user) RETURNS VOID AS
+CREATE OR REPLACE FUNCTION ProcessCommands() RETURNS VOID
 $$
-DECLARE
-  _PlayerGameCount INT;
-  p Planet;
-
-  _AllocatedShips INT;
 BEGIN
-  /* Resolve gameid if not explicitly passed. */
-  IF _GameId IS NULL
-  THEN
-    PERFORM ResolveGameId(_Player);
-  END IF;
- *    not send more ships than are available in the planet, with consideration
- *     for allocated ships.
- *    must have a valid distination
- *    source and destination should not be the same
- *    must send at least one ship
-
-  SELECT *
-  FROM Planet
-  WHERE
-    GameId = _GameId
-    AND Owner = _Player
-    AND DisplayCharacter = _SourceDisplayCharacter;
-
-  IF NOT FOUND
-  THEN
-    RAISE EXCEPTION 'Player % does not own planet % for game %',
-      _Player, _SourceDisplayCharacter, _GameId;
-  END IF;
-
-  /* ship count validation: ships on planet (discounted for allocated ships),
-   * must be greater than or equal to command number of ships
-   */
-  SELECT INTO _AllocatedShips
-    SUM(NumberOfShips)
-  FROM Command
-  WHERE
-    SourcePlanetId = p.Planet;
-
-  INSERT INTO Command(
-    SourcePlanetId,
-    DestinationPlanetId,
-    PlayerName,
-    NumberOfShips)
-  VALUES (
-    (
-      SELECT PlanetId
-      FROM Planet
-      WHERE
-        DisplayCharacter = _SourceDisplayCharacter
-        AND GameId = _GameId
-    ),
-    (
-      SELECT PlanetId
-      FROM Planet
-      WHERE
-        DisplayCharacter = _DestinationDisplayCharacter
-        AND GameId = _GameId
-    ),
-    _Player,
-    _NumberOfShips
-  );
+  UPDATE Planet
 END;
-$$ LANGUAGE PLPGSQL SECURITY DEFINER;
-
-
-/* Show commands for a player that have entered but not processed.
- *
- * XXX: delete command function needed?
- */
-CREATE OR REPLACE FUNCTION ShowCommands(
-  _Player TEXT DEFAULT current_user,
-  _GameId INT DEFAULT NULL) RETURNS SETOF TEXT AS
-$$
-
 $$ LANGUAGE PLPGSQL;
-
-
-CREATE OR REPLACE FUNCTION CommandsDone(
-  _Player TEXT DEFAULT current_user,
-  _GameId INT DEFAULT NULL) RETURNS SETOF TEXT AS
-$$
-
-$$ LANGUAGE PLPGSQL;
-
-
-/* when commands are done, they will be processed and rendered to fleets.
- *
- */
-CREATE OR REPLACE FUNCTION ProcessCommands(
-
 

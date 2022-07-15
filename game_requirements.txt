@@ -9,8 +9,8 @@
 TURNS:
 Game is organized into turns.  Turns are in two phases:
   1. Player enters commands
-  2a. commands Processed
-  2b. Fleets Created
+  2a. Commands Processed (deduct allocated ships from planet, delete commands)
+  2b. Fleets Created (create fleet record)
   2c. Combat occurs
   2d. Planets changes hands
   2e. Planet Production occurs
