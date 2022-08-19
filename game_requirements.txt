@@ -33,7 +33,7 @@ Once Sent, ships are not visible to any  player (or other ships) until they arri
 Fleets that arrive to unaligned planet will engage in battle
 
 
-Battle is very simple, each ship will role a six sided die and score a hit with six. Shots happens simultaneously and a hit will remove a ship from the the side. Battle continues until one fleet wins.  Defense value are 'bonus ships' that cannot be destroyed but contribute to defending 
+Battle is very simple, each ship will role a six sided die and score a hit with six. Shots happens simultaneously and a hit will remove a ship from the other side. Battle continues until one or both sides have no ships remaning .  Defense value are 'bonus ships' that cannot be destroyed but contribute to defending fleet
 
 Players may ally.  If allied, ships will combine attacks.  However, only one players's ship may be on the plan at one time
 

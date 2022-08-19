@@ -202,25 +202,6 @@ $$ LANGUAGE PLPGSQL SECURITY DEFINER;
 CREATE OR REPLACE FUNCTION ProcessCommands(_GameId INT) RETURNS VOID AS
 $$
 BEGIN
-  // get the data
-  select * from command where SourcePlanetId IN (
-      SELECT PlanetId
-      FROM Planet
-      WHERE GameId = _GameId
-    )
-
-    // for c in returned commands loop
-    update command set processed where commandid = c.commandid;
-    insert into fleet ...
-  end loop
-
-
-  /* OLD SCHOOL: get results, store in temp table. either,
-     loop with cursor,
-     OR
-     UPDATE FROM temp / INSERT FROM temp
-
-    */
 
   WITH processed AS
   (
@@ -250,28 +231,226 @@ BEGIN
     DestinationPlanetId,
     NumberOfShips,
     Distance(
-      x1,y1,x2,y2
-      )
+      source.XPosition,
+      source.YPosition,
+      destination.XPosition,
+      destination.YPosition)
   FROM processed c
   JOIN Planet source ON c.SourcePlanetId = source.PlanetId
-  JOIN Planet destination ON c.DestinationPlanetId = destination.PlanetId
+  JOIN Planet destination ON c.DestinationPlanetId = destination.PlanetId;
+
+END;
+$$ LANGUAGE PLPGSQL;
+
+/* Decrement all fleets in transit by one turn.
+ */
+CREATE OR REPLACE FUNCTION MoveFleets(_GameId INT) RETUNS VOID AS
+$$
+BEGIN
+  UPDATE Fleet f SET TurnsLeft = TurnsLeft - 1
+  WHERE (
+    f.DesinationPlanetId IN (
+      SELECT PlanetId
+      FROM Planet
+      WHERE GameId = _GameId
+    );
+END;
+$$ LANGUAGE PLPGSQL;
+
+/*
+ *
+ * Each ship will role a six sided die and score a hit with six.
+ * Shots happens simultaneously and a hit will remove a ship from the other
+ * side. Battle continues until one or both sides have no ships remaning.
+ * Defense value are 'bonus ships' that cannot be destroyed but contribute
+ * to defending fleet.
+ */
+CREATE OR REPLACE FUNCTION Battle(
+  f Fleet,
+  AttackingShipsRemaining OUT INT,
+  DefendingShipsRemaining OUT INT) RETURNS RECORD AS
+$$
+DECLARE
+  p Planet;
+
+  _AttackerHits INT;
+  _DefenderHits INT;
+BEGIN
+  SELECT INTO p * FROM Planet WHERE PlanetId = f.DesinationPlanetId;
+
+  DefendingShipsRemaining := p.Ships;
+  AttackingShipsRemaining := f.ShipCount;
+
+  LOOP
+    SELECT INTO _AttackerHits COUNT(*)
+    FROM DiceRoller(1, 6, AttackingShipsRemaining) d
+    WHERE d = 6;
+
+    SELECT INTO _DefenderHits COUNT(*)
+    FROM DiceRoller(1, 6, DefendingShipsRemaining + p.Defense) d
+    WHERE d = 6;
+
+    /* roll dice and adjust the ship counts */
+    DefendingShipsRemaining :=
+      greatest(DefendingShipsRemaining - _AttackerHits, 0);
+
+    AttackingShipsRemaining :=
+      greatest(AttackingShipsRemaining - _DefenderHits, 0);
+
+    IF AttackingShipsRemaining = 0 OR DefendingShipsRemaining = 0
+    THEN
+      EXIT;
+    END IF;
+  END LOOP;
+END;
+$$ LANGUAGE PLPGSQL STABLE;
 
 
+/*
+ * For fleets with turncount = 0,
+ * the fleet will engage in battle if the destination planet is owned by another
+ * player, or accumulate ship count if the planet is owned by the seding player.
+ *
+ * Regardless of the above, the fleet will no longer exist upon arrival.
+ */
+CREATE OR REPLACE FUNCTION ProcessFleetArrivals(_GameId INT) RETUNS VOID AS
+$$
+DECLARE
+  f Fleet;
+  _NeedBattle BOOL;
+  _DefendingShipsRemaining INT;
+  _ShipsRemaining INT;
+BEGIN
+  FOR f IN
+    SELECT * FROM Fleet
+    WHERE (
+      f.DesinationPlanetId IN (
+        SELECT PlanetId
+        FROM Planet
+        WHERE GameId = _GameId
+      ) AND TurnsLeft = 0
+  LOOP
+    /* check if planet is owned by fleet owner and give battle if it isn't */
+    SELECT INTO
+      _NeedBattle
+      p.Owner != f.PlayerName
+    FROM Planet p
+    WHERE
+      f.DestinationPlanetId = p.PlanetId;
+
+    _FleetDestroyed := false;
+
+    IF _NeedBattle
+    THEN
+      /* battle function reduces ship count for fleet and planet until
+       * one or the other has no ships remaining
+       */
+      SELECT INTO _ShipsRemaining, _DefendingShipsRemaining * FROM Battle(f);
+    ELSE
+      _ShipsRemaining := f.NumberOfShips;
+    END IF;
+
+    DELETE FROM Fleet f2
+    WHERE f2.FleetId = f.FleetId;
+
+    /* if battle was given and fleet does not survive, terminate fleet */
+    IF _ShipsRemaining = 0
+    THEN
+      CONTINUE;
+    END IF;
+
+    /* if battle was given and fleet does survive, change planet owner to fleet
+     * owner.
+     */
+    UPDATE Planet SET
+      Owner = CASE
+        WHEN _NeedBattle AND _ShipsRemaining > 0 Owner THEN f.PlayerName
+        ELSE Owner
+      END,
+      Ships = CASE
+        WHEN _NeedBattle AND _ShipsRemaining > 0 THEN _ShipsRemaining
+        WHEN _NeedBattle AND _ShipsRemaining = 0 THEN _DefendingShipsRemaining
+        ELSE Ships + _ShipsRemaining
+      END
+    WHERE PlanetId = f.DestinationPlanetId;
+  END LOOP;
+
+  /* XXX: consider battle reports yep
+   *
+   * Upon turn conclusion, users will receive a report of battles. But how??
+   *
+   */
 
 END;
 $$ LANGUAGE PLPGSQL;
 
 
+/* format fleet reports.
+ *
+ * examples: fleet with X ships sent from planet Y has arrived without battle
+ *             at planet z.
+ *           fleet with X ships sent from planet Y has arrived with battle
+ *             at planet z and is victorious with W ships surviving
+ *           fleet with X ships sent from planet Y has arrived with battle
+ *             at planet z and was defeated
+ *
+ */
+CREATE OR REPLACE FUNCTION BattleReport(
+  _,
+  _) RETURNS TEXT AS
+$$
+  /* choice #1 :-) I agree*/
+  SELECT
+    CASE
+      WHEN x THEN format(
+        'fleet with %s ships sent from planet %s has arrived without battle'
+        ' at planet %s.'
+      WHEN y THEN format(..
+      WHEN z THEN format(
+    END;
+
+$$ LANGUAGE SQL;
 
 
 
 /*
  * Convert ships to fleets and clear commands table
+ *
+ * Let's discuss behavior.
+ *   Option 1. CommandsDone() returns immediately, always.
+ *     Two ways to be notified that game state has changed
+ *       1a. Poll (just ask every so often)
+ *
+ *       1b. Push Notification (Pam, Roland, Shruti, Merlin)
+ *     1a and 1b are two variants of asynchronous communication
+ *
+ *   In a crash scenario,
+ *     Send CommandsDone in special mode, so that it only hangs if your flag is
+ *     still yet, other wise, it will immediately print battle repots (if any)
+ *     and exit.
+ *
+ *   Option 2. CommandsDone() hangs until every player has issues CommandsDone()
+ *     and prints out battle reports
+ *
+ *   Option 2a. As #2, but no battle reports. (Karls, Kyle, Valencia)
+ *     2a and 2b are synchronous communcation.  Often a timeout is needed.
+ *     Synchronous communcation can be a poor choice when the thing being
+ *     processed has an arbitrary runtime.
+ *     Synchronous is good choice when runtime is expected to be short and
+ *     bounded.
+ *
+ *     All else being equal, synchronous designs are simpler
+ *     We do not want our synchronous command to hold a transaction open if
+ *     possible.
+ *
+ *   Set a flag on PlayerGame table, commit the transaction, then wait around
+ *     for all other flags to be set, printing battle reports when ther all set
  */
 CREATE OR REPLACE FUNCTION CommandsDone(
   _Player TEXT DEFAULT current_user,
   _GameId INT DEFAULT NULL) RETURNS SETOF TEXT AS
 $$
+BEGIN
   IF NOT AllPlayersDone() /*XXX: TODO */
   THEN
     /* nothing to do! */
@@ -279,14 +458,14 @@ $$
   END IF;
 
   /* Game turn processing */
-  PERFORM ProcessCommands();
+  PERFORM ProcessCommands(_GameId);
 
-  PERFORM MoveFleets();
+  PERFORM MoveFleets(_GameId);
 
-  PERFORM EnageBattles();
+  PERFORM ProcessFleetArrivals(_GameId);
 
-  PERFORM SendUserReports();
-
+  PERFORM SendUserReports(_GameId);
+END;
 $$ LANGUAGE PLPGSQL SECURITY DEFINER;
 
 

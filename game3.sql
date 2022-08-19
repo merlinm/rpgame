@@ -369,6 +369,7 @@ CREATE TABLE Alliance
 (
   PlayerName1 TEXT,
   PlayerName2 TEXT
+
 );
 
 -- simpler
@@ -745,16 +746,109 @@ END;
 $$ LANGUAGE PLPGSQL SECURITY DEFINER;
 
 
-
 /*
- * When commands are done, they will be processed and rendered to fleets.
-    2a. Commands Processed (deduct allocated ships from planet, delete commands)
-    2b. Fleets Created (create fleet record)
+ *  Not every feet has a battle report, but every battle report has a fleet.
+ *  Relationship between fleet and bettle report is 1:1
  */
-CREATE OR REPLACE FUNCTION ProcessCommands() RETURNS VOID
+CREATE TABLE BattleReport
+(
+  GameId INT,
+  BettleReportId SERIAL,
+
+  Turn INT,
+
+  SendingPlayerName TEXT,
+  ReceivingPlayerName TEXT,
+
+  /* the turn the fleet arrive */
+  FleetArrivalTurn INT,
+
+  WasBattle BOOL,
+
+  SenderSurvivingShipCount INT,
+  ReceiverSurvivingShipCount INT,
+
+  DidPlanetChangedHands BOOL,
+
+  SourcePlanetId INT,
+  DestinationPlanetId INT,
+
+  /*
+   * option 1: IsSender is captured, with two records, one for attacker ,
+   *           one for defender
+   * option 2: one record PER BATTLE, with is Attacker decision made by looking
+   *           at who is requesting reports.
+   *
+   *   less duplication of data
+   *   easier generation
+   */
+
+);
+
+CREATE OR REPLACE FUNCTION FormatBattleReport(
+  b BattleReport,
+  _IsSender BOOL) RETURNS TEXT
 $$
 BEGIN
-  UPDATE Planet
+
+  CASE
+    WHEN NOT b.WasBattle AND _IsSender THEN
+      RETURN format(
+        'fleet with %s ships sent from planet %s has arrived without battle'
+        ' at planet %s.',
+        b.SentShipCount,
+        (SELECT DisplayCharacter FROM Planet WHERE PlanetId = SourcePlanetId),
+        (
+            SELECT DisplayCharacter
+            FROM Planet
+            WHERE PlanetId = DestinationPlanetId
+        ));
+
+    WHEN b.WasBattle AND _IsSender THEN
+      RETURN format(
+        'fleet with %s ships sent from planet %s has arrived with battle'
+        ' at planet %s and is victorious with %s ships surviving',
+        b.SentShipCount,
+        (SELECT DisplayCharacter FROM Planet WHERE PlanetId = SourcePlanetId),
+        (
+            SELECT DisplayCharacter
+            FROM Planet
+            WHERE PlanetId = DestinationPlanetId
+        ));
+
+  END CASE;
+
+
+  IF NOT b.WasBattle AND _IsSender
+  THEN
+
+  ELSEIF b.WasBattle AND _IsSender
+  THEN
+    RETURN format(
+      'fleet with %s ships sent from planet %s has arrived without battle'
+      ' at planet %s.',
+      b.SentShipCount,
+      (SELECT DisplayCharacter FROM Planet WHERE PlanetId = SourcePlanetId),
+      (
+          SELECT DisplayCharacter
+          FROM Planet
+          WHERE PlanetId = DestinationPlanetId
+      ));
+  END IF;
+
+
 END;
 $$ LANGUAGE PLPGSQL;
 
+PrintBattleReports(_GameId, _Player, _Turn DEFAULT...) RETURNS SETOF TEXT
+  SELECT FROM BattleReport WHERE GAME = x and Turn =  Y AND (Sending OR RecivingPlayer) _Player
+
+ * examples: fleet with X ships sent from planet Y has arrived without battle
+ *             at planet z.
+ *           fleet with X ships sent from planet Y has arrived with battle
+ *             at planet z and is victorious with W ships surviving
+ *           fleet with X ships sent from planet Y has arrived with battle
+ *             at planet z and was defeated
+
+ *          your planet X was attacked by player Y with Z ships, W ships remain
+ *          your planet X was attacked by player Y with Z ships, and was captured
