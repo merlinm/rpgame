@@ -98,7 +98,7 @@ BEGIN
     SUM(NumberOfShips)
   FROM Command
   WHERE
-    SourcePlanetId = p.Planet;
+    SourcePlanetId = p.PlanetId;
 
   IF p.Ships < _AllocatedShips + _NumberOfShips
   THEN
@@ -115,7 +115,7 @@ BEGIN
   IF _NumberOfShips < 1
   THEN
     RAISE EXCEPTION
-      'Submitted ship count % must be at least one'
+      'Submitted ship count % must be at least one',
       _NumberOfShips;
   END IF;
 
@@ -202,11 +202,13 @@ $$ LANGUAGE PLPGSQL SECURITY DEFINER;
 CREATE OR REPLACE FUNCTION ProcessCommands(_GameId INT) RETURNS VOID AS
 $$
 BEGIN
+  RAISE NOTICE '%', format('Processing commands for game id %s', _GameId);
 
-  WITH processed AS
+  CREATE TEMP TABLE processed ON COMMIT DROP AS
+  WITH q AS
   (
     UPDATE Command c SET
-      Processed = now()
+        Processed = now()
     FROM
     (
       SELECT *
@@ -218,14 +220,16 @@ BEGIN
           WHERE GameId = _GameId
         )
     ) q
-    WHERE q.PlanetId = c.PlanetId
-    RETURNING *
-  )
+    WHERE q.CommandId = c.CommandId
+    RETURNING c.*
+  ) SELECT * FROM q;
+
   INSERT INTO Fleet(
     PlayerName,
     DestinationPlanetId,
     ShipCount,
-    TurnsLeft)
+    TurnsLeft,
+    Created)
   SELECT
     PlayerName,
     DestinationPlanetId,
@@ -234,22 +238,27 @@ BEGIN
       source.XPosition,
       source.YPosition,
       destination.XPosition,
-      destination.YPosition)
-  FROM processed c
-  JOIN Planet source ON c.SourcePlanetId = source.PlanetId
-  JOIN Planet destination ON c.DestinationPlanetId = destination.PlanetId;
+      destination.YPosition),
+    g.Turn
+  FROM processed p
+  JOIN Planet source ON p.SourcePlanetId = source.PlanetId
+  JOIN Planet destination ON p.DestinationPlanetId = destination.PlanetId
+  JOIN Game g ON g.GameId = source.GameId;
 
+  UPDATE Planet SET Ships = Ships - NumberOfShips
+  FROM processed
+  WHERE Planet.PlanetId = processed.SourcePlanetId;
 END;
 $$ LANGUAGE PLPGSQL;
 
 /* Decrement all fleets in transit by one turn.
  */
-CREATE OR REPLACE FUNCTION MoveFleets(_GameId INT) RETUNS VOID AS
+CREATE OR REPLACE FUNCTION MoveFleets(_GameId INT) RETURNS VOID AS
 $$
 BEGIN
   UPDATE Fleet f SET TurnsLeft = TurnsLeft - 1
-  WHERE (
-    f.DesinationPlanetId IN (
+  WHERE
+    f.DestinationPlanetId IN (
       SELECT PlanetId
       FROM Planet
       WHERE GameId = _GameId
@@ -275,11 +284,22 @@ DECLARE
 
   _AttackerHits INT;
   _DefenderHits INT;
+
+  _Debug BOOL DEFAULT true;
 BEGIN
-  SELECT INTO p * FROM Planet WHERE PlanetId = f.DesinationPlanetId;
+  SELECT INTO p * FROM Planet WHERE PlanetId = f.DestinationPlanetId;
 
   DefendingShipsRemaining := p.Ships;
   AttackingShipsRemaining := f.ShipCount;
+
+  IF _Debug
+  THEN
+    RAISE NOTICE 'Fleet % is engaged in battle!, attacking ships % defending ships % ',
+      f.FleetId,
+      AttackingShipsRemaining,
+      DefendingShipsRemaining;
+  END IF;
+
 
   LOOP
     SELECT INTO _AttackerHits COUNT(*)
@@ -297,6 +317,14 @@ BEGIN
     AttackingShipsRemaining :=
       greatest(AttackingShipsRemaining - _DefenderHits, 0);
 
+    IF _Debug
+    THEN
+      RAISE NOTICE 'Fleet % is engaged in battle!, attacking ships % defending ships % ',
+        f.FleetId,
+        AttackingShipsRemaining,
+        DefendingShipsRemaining;
+    END IF;
+
     IF AttackingShipsRemaining = 0 OR DefendingShipsRemaining = 0
     THEN
       EXIT;
@@ -313,27 +341,57 @@ $$ LANGUAGE PLPGSQL STABLE;
  *
  * Regardless of the above, the fleet will no longer exist upon arrival.
  */
-CREATE OR REPLACE FUNCTION ProcessFleetArrivals(_GameId INT) RETUNS VOID AS
+CREATE OR REPLACE FUNCTION ProcessFleetArrivals(_GameId INT) RETURNS VOID AS
 $$
 DECLARE
   f Fleet;
   _NeedBattle BOOL;
   _DefendingShipsRemaining INT;
   _ShipsRemaining INT;
+  _RecevingPlayer TEXT;
+  _PlanetChangedHands BOOL;
+  _FleetDestroyed BOOL;
+  g Game;
+
+  _Debug BOOL DEFAULT true;
 BEGIN
+  SELECT * INTO g FROM Game WHERE GameId = _GameId;
+
+  IF _Debug
+  THEN
+    RAISE NOTICE 'Processing fleet arrivals for game %, min turns left %',
+      _GameId,
+      (
+        SELECT min(TurnsLeft)
+        FROM Fleet
+        JOIN Planet p ON fleet.DestinationPlanetId = p.PlanetId
+        WHERE GameId = _GameId
+      );
+  END IF;
+
   FOR f IN
     SELECT * FROM Fleet
-    WHERE (
-      f.DesinationPlanetId IN (
+    WHERE
+      Fleet.DestinationPlanetId IN (
         SELECT PlanetId
         FROM Planet
         WHERE GameId = _GameId
       ) AND TurnsLeft = 0
   LOOP
+    IF _Debug
+    THEN
+      RAISE NOTICE 'Processing fleet id % destination % player %',
+        f.FleetId,
+        f.DestinationPlanetId,
+        f.PlayerName;
+    END IF;
+
     /* check if planet is owned by fleet owner and give battle if it isn't */
     SELECT INTO
-      _NeedBattle
-      p.Owner != f.PlayerName
+      _NeedBattle,
+      _RecevingPlayer
+      COALESCE(p.Owner, '') != f.PlayerName,
+      p.Owner
     FROM Planet p
     WHERE
       f.DestinationPlanetId = p.PlanetId;
@@ -347,68 +405,87 @@ BEGIN
        */
       SELECT INTO _ShipsRemaining, _DefendingShipsRemaining * FROM Battle(f);
     ELSE
-      _ShipsRemaining := f.NumberOfShips;
+      _ShipsRemaining := f.ShipCount;
     END IF;
 
     DELETE FROM Fleet f2
     WHERE f2.FleetId = f.FleetId;
 
-    /* if battle was given and fleet does not survive, terminate fleet */
-    IF _ShipsRemaining = 0
-    THEN
-      CONTINUE;
-    END IF;
+    _PlanetChangedHands := _NeedBattle AND _ShipsRemaining > 0;
 
     /* if battle was given and fleet does survive, change planet owner to fleet
      * owner.
      */
     UPDATE Planet SET
       Owner = CASE
-        WHEN _NeedBattle AND _ShipsRemaining > 0 Owner THEN f.PlayerName
+        WHEN _PlanetChangedHands THEN f.PlayerName
         ELSE Owner
       END,
       Ships = CASE
-        WHEN _NeedBattle AND _ShipsRemaining > 0 THEN _ShipsRemaining
-        WHEN _NeedBattle AND _ShipsRemaining = 0 THEN _DefendingShipsRemaining
+        WHEN _PlanetChangedHands THEN _ShipsRemaining
+        WHEN NOT _PlanetChangedHands THEN _DefendingShipsRemaining
         ELSE Ships + _ShipsRemaining
       END
     WHERE PlanetId = f.DestinationPlanetId;
-  END LOOP;
 
-  /* XXX: consider battle reports yep
-   *
-   * Upon turn conclusion, users will receive a report of battles. But how??
-   *
-   */
+    INSERT INTO FleetArrival VALUES(
+      _GameId,
+      default,
+
+      g.Turn,
+
+      f.PlayerName, /* sender */
+      _RecevingPlayer,  /* receiving player */
+
+      _NeedBattle,
+
+      _ShipsRemaining,
+      _DefendingShipsRemaining,
+
+      _PlanetChangedHands,
+
+      NULL, /* fleet does not capture source planet id at present */
+      f.DestinationPlanetId,
+      f.ShipCount);
+
+  END LOOP;
+END;
+$$ LANGUAGE PLPGSQL;
+
+
+CREATE OR REPLACE FUNCTION DisplayFleetArrivals(
+  _Player TEXT DEFAULT current_user,
+  _GameId INT DEFAULT NULL,
+  _Turn INT DEFAULT NULL) RETURNS SETOF TEXT AS
+$$
+BEGIN
+  /* XXX: Resolve player, game and turn */
+  RETURN QUERY SELECT FormatFleetArrival(fa, _Player IS NOT DISTINCT FROM SendingPlayerName)
+  FROM FleetArrival fa
+  WHERE
+    GameId = _GameId
+    AND Turn = _Turn
+    AND
+    (
+      SendingPlayerName IS NOT DISTINCT FROM _Player
+      OR ReceivingPlayerName IS NOT DISTINCT FROM _Player
+    );
 
 END;
 $$ LANGUAGE PLPGSQL;
 
 
-/* format fleet reports.
- *
- * examples: fleet with X ships sent from planet Y has arrived without battle
- *             at planet z.
- *           fleet with X ships sent from planet Y has arrived with battle
- *             at planet z and is victorious with W ships surviving
- *           fleet with X ships sent from planet Y has arrived with battle
- *             at planet z and was defeated
- *
- */
-CREATE OR REPLACE FUNCTION BattleReport(
-  _,
-  _) RETURNS TEXT AS
-$$
-  /* choice #1 :-) I agree*/
-  SELECT
-    CASE
-      WHEN x THEN format(
-        'fleet with %s ships sent from planet %s has arrived without battle'
-        ' at planet %s.'
-      WHEN y THEN format(..
-      WHEN z THEN format(
-    END;
 
+CREATE OR REPLACE FUNCTION AllPlayersDone(_GameId INT) RETURNS BOOL AS
+$$
+  SELECT
+    NOT EXISTS (
+      SELECT 1
+      FROM PlayerGame
+      WHERE
+        GameId = _GameId
+        AND CommandsDone IS NULL
+    );
 $$ LANGUAGE SQL;
 
 
@@ -445,13 +522,30 @@ $$ LANGUAGE SQL;
  *
  *   Set a flag on PlayerGame table, commit the transaction, then wait around
  *     for all other flags to be set, printing battle reports when ther all set
+ *
+ *  XXX: Game processing is currently happening directly as a response to
+ *       player input.  Eventually, game logic should happen in a separate
+ *       process so that game game function can managed outside of player input.
  */
 CREATE OR REPLACE FUNCTION CommandsDone(
   _Player TEXT DEFAULT current_user,
   _GameId INT DEFAULT NULL) RETURNS SETOF TEXT AS
 $$
 BEGIN
-  IF NOT AllPlayersDone() /*XXX: TODO */
+  /* Resolve gameid if not explicitly passed. */
+  IF _GameId IS NULL
+  THEN
+    _GameId := ResolveGameId(_Player);
+  END IF;
+
+  /* mark commands as being done if not already so marked */
+  UPDATE PlayerGame SET CommandsDone = now()
+  WHERE
+    PlayerName = _Player
+    AND GameId = _GameId
+    AND CommandsDone IS NULL;
+
+  IF NOT AllPlayersDone(_GameId)
   THEN
     /* nothing to do! */
     RETURN;
@@ -464,9 +558,19 @@ BEGIN
 
   PERFORM ProcessFleetArrivals(_GameId);
 
-  PERFORM SendUserReports(_GameId);
+  PERFORM DisplayFleetArrivals(
+    _Player,
+    _GameId);
+
+  /* Everything is done! advance the turn */
+  UPDATE Game SET Turn = Turn + 1 WHERE GameId = _GameId;
+
+  UPDATE PlayerGame SET CommandsDone = NULL
+  WHERE GameId = _GameId;
+
+  UPDATE Planet SET
+    Ships = Ships + Production
+  WHERE GameId = _GameId;
 END;
 $$ LANGUAGE PLPGSQL SECURITY DEFINER;
-
-
 

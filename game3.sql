@@ -73,6 +73,16 @@
  *    Option #1: honor system, assume nobody inspects command or fleet table
  *    Option #2: database security
  *
+ * clean up display battle report
+ * clean up all functions taking player and game
+ * play the game!
+ * feet battler order?
+ * alliances?
+ * fleet upgrades
+ * fog of war?
+ * fleet to fleet battles
+ *
+ * UI
  */
 
 
@@ -96,6 +106,16 @@ CREATE TABLE Game
 );
 
 
+CREATE TABLE Player
+(
+  PlayerId SERIAL UNIQUE,
+  PlayerName TEXT PRIMARY KEY,
+
+  /* XXX: this is bad, but we are doing it for learning purposes */
+  Password_Raw TEXT
+);
+
+
 
 CREATE TABLE PlayerGame
 (
@@ -107,8 +127,10 @@ CREATE TABLE PlayerGame
   
   HomePlanetId INT /* REFERENCES Planet(PlanetId) */,
   Ally TEXT,
-  
-  UNIQUE(PlayerName, GameId)
+  UNIQUE(PlayerName, GameId),
+
+  CommandsDone TIMESTAMPTZ
+
 );
 
 CREATE INDEX ON PlayerGame(GameId);
@@ -177,7 +199,7 @@ CREATE OR REPLACE VIEW vw_Game AS
 
 CREATE TABLE Command
 (
-  CommandId INT,
+  CommandId INT SERIAL NOT NULL,
 
   SourcePlanetId INT REFERENCES Planet,
   DestinationPlanetId INT REFERENCES Planet,
@@ -191,12 +213,10 @@ CREATE TABLE Command
 );
 
 
-CREATE OR REPLACE VIEW vw_PendingCommands AS
+CREATE OR REPLACE VIEW vw_PendingCommand AS
   SELECT
-    *,
-    GameId
+    *
   FROM Command
-  --JOIN Game ON Command
   WHERE Processed IS NULL;
 
 
@@ -205,11 +225,11 @@ CREATE OR REPLACE VIEW vw_PendingCommands AS
  */
 CREATE TABLE Fleet 
 (
-  FleetId INT,
+  FleetId SERIAL UNIQUE,
   
   PlayerName TEXT REFERENCES Player,
   DestinationPlanetId INT, 
-  Created INT, /* fleet was create on this turn */
+  Created INT, /* fleet was created on this turn XXX: Rename to TurnCreated */
   
   ShipCount INT,
   TurnsLeft INT,
@@ -218,6 +238,8 @@ CREATE TABLE Fleet
 );
 
 
+/*
+ * XXX: Unimplemented
 -- player owned alliance
 1. Create the alliance
 2. Attach players the alliance from the alliance
@@ -250,6 +272,9 @@ CREATE TABLE Alliance
 );
 
 -- simpler
+
+*/
+
 
 
 /*
@@ -278,28 +303,6 @@ $$ LANGUAGE SQL;
 
 
   
-  
-
-
-/*
- * next week:
- *
- * Game intialization  (Take a list of payers)
- *   Verify at least 2 players
- *   Generate playfield
- *   Insert game record
- * Turn/phase processing
- * Processing commands into fleets (function / procedure)
- *   Distance function
- * Process fleets in tranit
- * Battles, ship to planet combat
- *  Dice roller
- *
- * Playfield display function
- */
-
-
-
 CREATE OR REPLACE VIEW vw_Game AS
   SELECT 
     g.*,
@@ -308,92 +311,6 @@ CREATE OR REPLACE VIEW vw_Game AS
   JOIN PlayerGame USING(GameId)
   GROUP BY GameID;
 
-
-CREATE TABLE Command
-(
-  CommandId INT,
-
-  SourcePlanetId INT REFERENCES Planet
-  DestinationPlanetId INT REFERENCES Planet,
-  PlayerName TEXT,
-  
-  NumberOfShips INT,
-  PRIMARY KEY(PlayerName, SourcePlanetId, DestinationPlanetId)
-);
-
-
-/*
- * A fleet is stationed a planet if TurnsLeft = 0
- */
-CREATE TABLE Fleet 
-(
-  FleetId INT,
-  
-  PlayerName TEXT REFERENCES Player,
-  DestinationPlanetId INT, 
-  Created INT, /* fleet was create on this turn */
-  
-  ShipCount INT,
-  TurnsLeft INT,
-  
-  PRIMARY KEY(PlayerId, DestinationPlanetId, Created)
-);
-
-
--- player owned alliance
-1. Create the alliance
-2. Attach players the alliance from the alliance
-3. more capability
-
-CREATE TABLE Alliance
-(
-  GameId INT REFERENCE Game,
-  AllianceOwner TEXT REFRENCES Player,
-  PRIMARY KEY (GameId, AllianceOwner)
-);
-
-CREATE TABLE AllianceMember
-( 
-  GameId INT,
-  AllianceOwner TEXT 
-  AllianceMember TEXT,
-
-  PRIMARY KEY(GameId, AllianceOwner, AllianceMamber),
-  FOREIGN KEY(GameId, AllianceOwner) 
-    REFERENCES Alliance
-);
-
-
--- discrete relationship
-CREATE TABLE Alliance
-(
-  PlayerName1 TEXT,
-  PlayerName2 TEXT
-
-);
-
--- simpler
-
-
-/*
- *
-  SELECT Distance(
-    0, 3,
-    4, 0)
-  */
-
-CREATE OR REPLACE FUNCTION Distance(
-  _XPosition1 INT,
-  _YPosition1 INT,
-  _XPosition2 INT,
-  _YPosition2 INT,
-  Turns OUT INT) RETURNS INT AS
-$$
-  SELECT 
-    ceil(sqrt(
-      abs(_XPosition2 - _XPosition1) ^ 2 + 
-      abs(_YPosition2 - _YPosition1) ^ 2))::INT;
-$$ LANGUAGE SQL;
 
 
 CREATE OR REPLACE FUNCTION DiceRoller(
@@ -416,19 +333,8 @@ $$
 $$ LANGUAGE SQL;
 
 
-
--- Interface (browser) Accept Input, Validate, Display, Interact with human (do much here)
--- Application (backend language -- database), Secure, Act, Interact w/ data model
--- Data Model (what is (or can be) and what isn't (or can't)).
-
 /*
-  \IIIII/ Interface                 time and money
-----API------
-   \BBB/  Business Logic
-    \B/   Database Procedures
-     D    Data Model
-*/
-
+ * calling example
 CALL InitializeGame(
   array[
     'Merlin',
@@ -437,12 +343,23 @@ CALL InitializeGame(
     'Karls',
     'Kyle']);
 
-
-function add_two(a, b)
-  return a + b;    
   
   
 CALL InitializeGame(array['Karls', 'Merlin', 'Pam']);
+ */
+
+
+CREATE OR REPLACE FUNCTION PasswordGenerator() RETURNS TEXT AS
+$$
+  SELECT string_agg(x, '') || 'a0!'
+  FROM
+  (
+    SELECT chr(DiceRoller(
+        65,
+        90,
+        15)) x
+  ) q;
+$$ LANGUAGE SQL;
 
 
 /* 
@@ -458,6 +375,7 @@ DECLARE
   _GameId BIGINT;
   _PlanetId INT;
   i INT;
+  pl Player;
   
   _MapPlanetOccupancy NUMERIC DEFAULT .2;
   
@@ -503,9 +421,20 @@ BEGIN
   
   
   /* accept players that are new otherwise ignore */
-  INSERT INTO Player (PlayerName)
-  SELECT Player FROM UNNEST(_Players) AS Player
+  INSERT INTO Player (PlayerName, Password_Raw)
+  SELECT Player, PasswordGenerator()
+  FROM UNNEST(_Players) AS Player
   ON CONFLICT DO NOTHING;
+
+  FOR pl IN (
+    SELECT * FROM Player WHERE NOT EXISTS (
+        SELECT 1 FROM pg_roles WHERE rolname = lower(PlayerName)
+      ))
+  LOOP
+    EXECUTE format($q$CREATE ROLE %s LOGIN PASSWORD '%s'$q$,
+      pl.PlayerName,
+      pl.Password_Raw);
+  END LOOP;
 
   INSERT INTO Game (GameId, Started, PlayFieldWidth, PlayFieldHeight)
   VALUES (DEFAULT, CURRENT_TIMESTAMP, _PlayFieldWidth, _PlayFieldHeight)
@@ -612,7 +541,7 @@ BEGIN
   FROM PlayerGame pg
   JOIN Game g USING(GameId)
   WHERE
-    PlayerName = _Player
+    PlayerName ILIKE _Player
     AND Ended IS NULL;
 
   IF _PlayerGameCount = 0
@@ -750,18 +679,16 @@ $$ LANGUAGE PLPGSQL SECURITY DEFINER;
  *  Not every feet has a battle report, but every battle report has a fleet.
  *  Relationship between fleet and bettle report is 1:1
  */
-CREATE TABLE BattleReport
+CREATE TABLE FleetArrival
 (
   GameId INT,
   BettleReportId SERIAL,
 
+  /* the turn the fleet arrived */
   Turn INT,
 
   SendingPlayerName TEXT,
   ReceivingPlayerName TEXT,
-
-  /* the turn the fleet arrive */
-  FleetArrivalTurn INT,
 
   WasBattle BOOL,
 
@@ -770,8 +697,10 @@ CREATE TABLE BattleReport
 
   DidPlanetChangedHands BOOL,
 
-  SourcePlanetId INT,
+  SourcePlanetId INT,  /* XXX unused */
   DestinationPlanetId INT,
+
+  SentShipCount INT
 
   /*
    * option 1: IsSender is captured, with two records, one for attacker ,
@@ -785,70 +714,61 @@ CREATE TABLE BattleReport
 
 );
 
-CREATE OR REPLACE FUNCTION FormatBattleReport(
-  b BattleReport,
-  _IsSender BOOL) RETURNS TEXT
+CREATE OR REPLACE FUNCTION FormatFleetArrival(
+  b FleetArrival,
+  _IsSender BOOL) RETURNS TEXT AS
 $$
 BEGIN
-
   CASE
     WHEN NOT b.WasBattle AND _IsSender THEN
       RETURN format(
-        'fleet with %s ships sent from planet %s has arrived without battle'
+        'fleet with %s ships sent from player %s has arrived without battle'
         ' at planet %s.',
         b.SentShipCount,
-        (SELECT DisplayCharacter FROM Planet WHERE PlanetId = SourcePlanetId),
+        b.SendingPlayerName,
         (
             SELECT DisplayCharacter
             FROM Planet
-            WHERE PlanetId = DestinationPlanetId
+            WHERE PlanetId = b.DestinationPlanetId
         ));
 
     WHEN b.WasBattle AND _IsSender THEN
       RETURN format(
-        'fleet with %s ships sent from planet %s has arrived with battle'
+        'fleet with %s ships sent from player %s has arrived with battle'
         ' at planet %s and is victorious with %s ships surviving',
         b.SentShipCount,
-        (SELECT DisplayCharacter FROM Planet WHERE PlanetId = SourcePlanetId),
+        b.SendingPlayerName,
         (
             SELECT DisplayCharacter
             FROM Planet
-            WHERE PlanetId = DestinationPlanetId
-        ));
+            WHERE PlanetId = b.DestinationPlanetId
+        ),
+        b.SenderSurvivingShipCount);
+
+    ELSE
 
   END CASE;
 
 
-  IF NOT b.WasBattle AND _IsSender
+  IF NOT b.WasBattle
   THEN
 
-  ELSEIF b.WasBattle AND _IsSender
+  ELSEIF b.WasBattle
   THEN
     RETURN format(
-      'fleet with %s ships sent from planet %s has arrived without battle'
-      ' at planet %s.',
+      'fleet with %s ships sent from player %s has arrived without battle'
+      ' at planet %s. %s of your ships survived.%s',
       b.SentShipCount,
-      (SELECT DisplayCharacter FROM Planet WHERE PlanetId = SourcePlanetId),
+      b.SendingPlayerName,
       (
           SELECT DisplayCharacter
           FROM Planet
-          WHERE PlanetId = DestinationPlanetId
-      ));
+          WHERE PlanetId = b.DestinationPlanetId
+      ),
+      b.ReceiverSurvivingShipCount,
+      CASE WHEN b.DidPlanetChangedHands THEN ' Your planet is lost!!' END);
   END IF;
-
 
 END;
 $$ LANGUAGE PLPGSQL;
 
-PrintBattleReports(_GameId, _Player, _Turn DEFAULT...) RETURNS SETOF TEXT
-  SELECT FROM BattleReport WHERE GAME = x and Turn =  Y AND (Sending OR RecivingPlayer) _Player
-
- * examples: fleet with X ships sent from planet Y has arrived without battle
- *             at planet z.
- *           fleet with X ships sent from planet Y has arrived with battle
- *             at planet z and is victorious with W ships surviving
- *           fleet with X ships sent from planet Y has arrived with battle
- *             at planet z and was defeated
-
- *          your planet X was attacked by player Y with Z ships, W ships remain
- *          your planet X was attacked by player Y with Z ships, and was captured
