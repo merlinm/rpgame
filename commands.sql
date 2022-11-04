@@ -95,10 +95,11 @@ BEGIN
    * must be greater than or equal to command number of ships
    */
   SELECT INTO _AllocatedShips
-    SUM(NumberOfShips)
+    COALESCE(SUM(NumberOfShips), 0)
   FROM Command
   WHERE
-    SourcePlanetId = p.PlanetId;
+    SourcePlanetId = p.PlanetId
+    AND Processed IS NULL;
 
   IF p.Ships < _AllocatedShips + _NumberOfShips
   THEN
@@ -472,7 +473,7 @@ BEGIN
     );
 
 END;
-$$ LANGUAGE PLPGSQL;
+$$ LANGUAGE PLPGSQL SECURITY DEFINER;
 
 
 

@@ -72,8 +72,7 @@
  *  Fog of war: no visibility to commands
  *    Option #1: honor system, assume nobody inspects command or fleet table
  *    Option #2: database security
- *
- * clean up display battle report
+ *clean up display battle report
  * clean up all functions taking player and game
  * play the game!
  * feet battler order?
@@ -81,8 +80,23 @@
  * fleet upgrades
  * fog of war?
  * fleet to fleet battles
- *
  * UI
+ * Move game processing out of player routines (CommandsDone)
+ *
+ * Show playfield needs several changes
+ *   needs to show allocated ships
+ *   needs to show current turn
+ *   needs to show players and if have completed command
+ *   needs to be a way to indicate turn roll over
+ *
+ * need to check ships does not go negative (Fixed?)
+ *
+ * allocated count not resetting (Fixed?)
+ *
+ * DisplayFleetReports needs show all reports for all turn
+ *
+ * Upper / lower case issues
+ * Clean up player identification
  */
 
 
@@ -199,7 +213,7 @@ CREATE OR REPLACE VIEW vw_Game AS
 
 CREATE TABLE Command
 (
-  CommandId INT SERIAL NOT NULL,
+  CommandId SERIAL NOT NULL,
 
   SourcePlanetId INT REFERENCES Planet,
   DestinationPlanetId INT REFERENCES Planet,
