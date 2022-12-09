@@ -40,8 +40,7 @@ CREATE OR REPLACE FUNCTION AddCommand(
   _SourceDisplayCharacter TEXT,
   _DestinationDisplayCharacter TEXT,
   _NumberOfShips INT,
-  _GameId INT DEFAULT NULL,
-  _Player TEXT DEFAULT current_user) RETURNS VOID AS
+  _GameId INT DEFAULT NULL) RETURNS VOID AS
 $$
 DECLARE
   _PlayerGameCount INT;
@@ -49,11 +48,13 @@ DECLARE
   d Planet;
 
   _AllocatedShips INT;
+
+  _Player TEXT DEFAULT session_user;
 BEGIN
   /* Resolve gameid if not explicitly passed. */
   IF _GameId IS NULL
   THEN
-    PERFORM ResolveGameId(_Player);
+    _GameId := ResolveGameId(_Player);
   END IF;
 
   /* verify and store source planet */
@@ -94,12 +95,8 @@ BEGIN
   /* ship count validation: ships on planet (discounted for allocated ships),
    * must be greater than or equal to command number of ships
    */
-  SELECT INTO _AllocatedShips
-    COALESCE(SUM(NumberOfShips), 0)
-  FROM Command
-  WHERE
-    SourcePlanetId = p.PlanetId
-    AND Processed IS NULL;
+  SELECT INTO _AllocatedShips AllocatedShips
+  FROM vw_PlanetAllocated WHERE PlanetId = p.PlanetId;
 
   IF p.Ships < _AllocatedShips + _NumberOfShips
   THEN
@@ -154,9 +151,10 @@ $$ LANGUAGE PLPGSQL SECURITY DEFINER;
  * Today we do this!
  */
 CREATE OR REPLACE FUNCTION ShowCommands(
-  _Player TEXT DEFAULT current_user,
   _GameId INT DEFAULT NULL) RETURNS SETOF TEXT AS
 $$
+DECLARE
+  _Player TEXT DEFAULT session_user;
 BEGIN
   /* Resolve gameid if not explicitly passed. */
   IF _GameId IS NULL
@@ -164,7 +162,7 @@ BEGIN
     PERFORM ResolveGameId(_Player);
   END IF;
 
-  SELECT
+  RETURN QUERY SELECT
     format('%s. %s ships from %s to %s',
       row_number() OVER (ORDER BY CommandId),
       c.NumberOfShips,
@@ -454,23 +452,23 @@ END;
 $$ LANGUAGE PLPGSQL;
 
 
-CREATE OR REPLACE FUNCTION DisplayFleetArrivals(
-  _Player TEXT DEFAULT current_user,
-  _GameId INT DEFAULT NULL,
-  _Turn INT DEFAULT NULL) RETURNS SETOF TEXT AS
+CREATE OR REPLACE FUNCTION Battles() RETURNS SETOF TEXT AS
 $$
+DECLARE
+  _Player TEXT DEFAULT session_user;
+  _GameId INT DEFAULT ResolveGameId(_Player);
 BEGIN
   /* XXX: Resolve player, game and turn */
   RETURN QUERY SELECT FormatFleetArrival(fa, _Player IS NOT DISTINCT FROM SendingPlayerName)
   FROM FleetArrival fa
   WHERE
     GameId = _GameId
-    AND Turn = _Turn
     AND
     (
       SendingPlayerName IS NOT DISTINCT FROM _Player
       OR ReceivingPlayerName IS NOT DISTINCT FROM _Player
-    );
+    )
+    ORDER BY Turn DESC;
 
 END;
 $$ LANGUAGE PLPGSQL SECURITY DEFINER;

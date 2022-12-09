@@ -84,10 +84,10 @@
  * Move game processing out of player routines (CommandsDone)
  *
  * Show playfield needs several changes
- *   needs to show allocated ships
- *   needs to show current turn
- *   needs to show players and if have completed command
- *   needs to be a way to indicate turn roll over
+ *   needs to show allocated ships *
+ *   needs to show current turn *
+ *   needs to show players and if have completed command *
+ *   needs to be a way to indicate turn roll over *
  *
  * need to check ships does not go negative (Fixed?)
  *
@@ -576,11 +576,35 @@ $$ LANGUAGE PLPGSQL;
 
 
 
+  -- view
+  CREATE OR REPLACE VIEW vw_PlanetAllocated AS
+  SELECT
+    p.*,
+    COALESCE(SUM(c.NumberOfShips), 0) AS AllocatedShips,
+    Owner || CASE
+      WHEN CommandsDone IS NOT NULL THEN '*'
+      ELSE ''
+    END AS OwnerDone
+  FROM Planet p
+  LEFT JOIN PlayerGame pg ON
+    pg.PlayerName = p.Owner
+    AND pg.GameId = p.GameId
+  LEFT JOIN Command c ON
+    c.SourcePlanetId = p.PlanetId
+    AND Processed IS NULL
+  GROUP BY
+    p.PlanetId,
+    OwnerDone;
+
+
+
+
 
 /*
  * how do we align display horizontally? hmm.
  *
- * let's do that today!
+ *   needs to show current turn
+ *   needs to show players and if have completed command
  */
 CREATE OR REPLACE FUNCTION ShowPlayfield(
   _Player TEXT DEFAULT current_user,
@@ -658,17 +682,23 @@ BEGIN
   FROM
   (
     /* header row */
-    SELECT 'Planet    Owner            # Ships    Production    Defense'  AS row
-    UNION ALL SELECT
-      format(
-        '%s    %s    %s    %s    %s',
-        rpad(DisplayCharacter, 6, ' '),
-        rpad(COALESCE(Owner, ''), 13, ' '),
-        lpad(Ships::TEXT, 7, ' '),
-        lpad(Production::TEXT, 10, ' '),
-        lpad(Defense::TEXT, 7, ' '))
-    FROM Planet
-    WHERE GameId = _GameId
+    SELECT format('Planet    Owner            # Ships Allocated Production    Defense (Turn: %s)',
+      (SELECT Turn FROM Game WHERE GameId = _GameId)) AS row
+    UNION ALL
+    (
+        SELECT
+        format(
+          '%s    %s    %s    %s    %s    %s',
+          rpad(DisplayCharacter, 6, ' '),
+          rpad(COALESCE(OwnerDone, ''), 13, ' '),
+          lpad(Ships::TEXT, 7, ' '),
+          lpad(AllocatedShips::TEXT, 6, ' '),
+          lpad(Production::TEXT, 7, ' '),
+          lpad(Defense::TEXT, 7, ' '))
+      FROM vw_PlanetAllocated
+      WHERE GameId = _GameId
+      ORDER BY DisplayCharacter
+    )
   ) q;
 
   RETURN QUERY SELECT
