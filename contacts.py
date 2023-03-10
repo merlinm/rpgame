@@ -6,6 +6,7 @@ from asciimatics.exceptions import ResizeScreenError, NextScene, StopApplication
 import sys
 import sqlite3
 
+
 #_________________________Database Model________________________#
 class ContactModel(object):
     def __init__(self):
