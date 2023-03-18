@@ -5,9 +5,20 @@ from asciimatics.screen import Screen
 from asciimatics.exceptions import ResizeScreenError, NextScene, StopApplication
 import sys
 import sqlite3
+from sqlalchemy.engine import URL, create_engine
 
+#_________________________Database Engine________________________#
+connection_url = URL.create(
+    "postgresql+psycopg2",
+    username="student",
+    password="rpstudent",
+    host="rpgame.mooo.com",
+    database="student"
+    )
 
-#_________________________Database Model________________________#
+engine = create_engine(connection_url)
+
+#_______________________UI Database Model______________________#
 class ContactModel(object):
     def __init__(self):
         # Create a database in RAM.
@@ -18,7 +29,6 @@ class ContactModel(object):
         self._db.cursor().execute('''
             CREATE TABLE players(
                 username TEXT PRIMARY KEY,
-                password TEXT NOT NULL,              
                 game_id INTEGER)
         ''')
         self._db.commit()
@@ -28,8 +38,8 @@ class ContactModel(object):
 
     def add(self, player):
         self._db.cursor().execute('''
-            INSERT INTO players(username, password)
-            VALUES(:username, :password)''',
+            INSERT INTO players(username)
+            VALUES(:username)''',
             player) 
         self._db.commit()
 
@@ -68,19 +78,18 @@ class LoginView(Frame):
         super(LoginView, self).__init__(screen,
                                        screen.height * 2 // 3,
                                        screen.width * 2 // 3,
-                                       on_load=self._reload_list,
                                        hover_focus=True,
                                        can_scroll=False,
                                        title="RealPage Game")
         # Save off the model that accesses the contacts database.
-        self._model = model
+        self._model = model                                                ##### REMOVE MODEL IF IT DOESNT BREAK IT
 
         # Create the form for displaying the list of contacts.   # Have to switch to list of games
         self._list_view = ListBox(
             Widget.FILL_FRAME,
             model.get_summary(),
             name="players",
-            add_scroll_bar=True)
+            add_scroll_bar=True)                                    ##### REMOVE MODEL WITHOUT BREAKING IT
 
         layout = Layout([100], fill_frame=True)
         self.add_layout(layout)
@@ -94,16 +103,23 @@ class LoginView(Frame):
         layout2.add_widget(Button("Exit", self._exit), 3)
         self.fix()
 
+# Need to get rid of the model
 
     def _log_in(self):
         self.save()
-        print("YOURE LOGGED IN")
+        with engine.connect() as connection:
+            result = connection.execute(
+                f"SELECT * FROM player WHERE playername = '{self.data['username']}' AND password_raw = '{self.data['password']}';"
+                )
+            if len(result.all()) == 0:
+                connection.execute(
+                f"INSERT INTO PLAYER (playername, password_raw) VALUES ('{self.data['username']}', '{self.data['password']}');"
+                )
         raise NextScene("Main")
-
-    def _reload_list(self, new_value=None):
-        self._list_view.options = self._model.get_summary()
-        self._list_view.value = new_value
-
+    
+    def reset(self):
+        # Do standard reset to clear out form
+        super(LoginView, self).reset()
 
     @staticmethod
     def _exit():
@@ -216,7 +232,8 @@ class ContactView(Frame):
     def _cancel():
         raise NextScene("Main")
 
-
+#____________ Starts the Game _______________#
+# Login view, game selection, game view
 def game(screen, scene):
     scenes = [
         Scene([LoginView(screen, contacts)], -1, name="Login"),
