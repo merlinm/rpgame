@@ -7,6 +7,24 @@ import sys
 from sqlalchemy.engine import URL, create_engine
 from sqlalchemy.orm import Session
 
+
+
+#_________________________User Class________________________#
+class User():
+    def __init__(self, username:str, selected_game_id:int = None): 
+        self._username = username
+        self._selected_game_id = selected_game_id
+        self._active_game_id = []
+
+    def __str__(self) -> str:
+        return f"Player {self._username} is currently playing game ID {self.selected_game_id}"
+    
+    # Set selected game ID
+
+
+    # Add game ID to player's list of games
+    
+
 #_________________________Database Engine________________________#
 connection_url = URL.create(
     "postgresql+psycopg2",
@@ -60,19 +78,20 @@ class LoginView(Frame):
         self.save()
         given_username = self.data['username'].lower()
         given_password = self.data['password']
-
-        if given_username == "" or given_password == "":
+        #Check for length of given input 
+        if len(given_username) < 3 or len(given_password) < 4:
             raise NextScene("Login")
-        
+        # Execute SQL statement to log in 
         with rpgame_db as connection:
             connection.begin()
             result = connection.execute(
                 f"Select LoginPlayer ('{given_username}','{given_password}');"
                 )
             connection.commit()
-            print(">>>>>>>", given_username, given_password)
-            for row in result:
-                print(row)
+            for row in result.scalars():
+                if not row:
+                    print(f"New user {given_username} created successfully.")               # Change to variables
+                print(f"User {given_username} logged in successfully.")                     # Change to variables
         raise NextScene("Main")
 
     @staticmethod
@@ -151,8 +170,8 @@ def game(screen, scene):
     screen.play(scenes, stop_on_resize=True, start_scene=scene, allow_int=True)
 
 
-
 last_scene = None
+
 while True:
     try:
         Screen.wrapper(game, catch_interrupt=True, arguments=[last_scene])
