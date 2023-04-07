@@ -526,6 +526,7 @@ $$ LANGUAGE SQL;
  *       player input.  Eventually, game logic should happen in a separate
  *       process so that game game function can managed outside of player input.
  */
+
 CREATE OR REPLACE FUNCTION CommandsDone(
   _Player TEXT DEFAULT current_user,
   _GameId INT DEFAULT NULL) RETURNS SETOF TEXT AS

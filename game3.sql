@@ -89,6 +89,8 @@
  *   needs to show players and if have completed command *
  *   needs to be a way to indicate turn roll over *
  *
+ * Login function!
+ *
  * need to check ships does not go negative (Fixed?)
  *
  * allocated count not resetting (Fixed?)
@@ -97,6 +99,54 @@
  *
  * Upper / lower case issues
  * Clean up player identification
+ *
+ * Looking ahead:
+ *   UI
+ *     Ascii interface                                    Thick client in db server
+ *     Option #1 C/python ncurses
+ *       log in by putty only
+ *       run ./game -- connects locally to database
+ *       no mouse support???
+ *       fastest
+ *
+ *    Option #2a: NCurses in Browser                      Browser app (as defined by there a web server)
+ *      go to our sever via browser
+ *      app written in javascript
+ *      little more difficult
+ *      slowest, but is most in line with modern programming
+
+ *    Option #2b: non brower based app runnning html queries
+ *
+ *    Option #3: Thick client app in our desktops          Thick client computer
+ *      firewall changes
+ *      next fastest assuming we can bypass firewall issues
+ *
+ *     node.js (web application development)
+ *       browser based
+ *
+ *   Game mechanics
+ *     Fog of war war mode
+ *     RealTime
+ *     Brainstorm on others, game economy, upgrades
+ *
+ *  Server mechanics
+ *    Separate game logic from the play command (game daemon)
+ *    clean up game deletion
+ *
+ *  Loop
+ *
+ *    ReadUIMessages();
+ *    -- or --
+ *    -- SetTimeout(0);
+ *  End loop
+
+ * M V asks: how do I get started?
+ *   Answer: start by starting
+ *
+ * GameLister()
+ * Login()
+ * Adjust InitializeGame() to not auto create
+ * PlayerList()
  */
 
 
@@ -815,4 +865,103 @@ BEGIN
 
 END;
 $$ LANGUAGE PLPGSQL;
+
+
+/*
+  180k miles/SELECT
+  11000 miles to australia 9 round trips to australia in 1 second
+
+  python:
+  check player w/SELECT
+  if found and password good go to game
+  if found and password wrong go back / refresh with eror
+  if not found create user()
+*/
+
+/*
+ * This is not really secure.  Create a user account with insecure password
+ * if the user sent, verify password otherwise.  Password will be consumed
+ * plain text (which is bad) and hashed in to the database.
+ */
+CREATE OR REPLACE FUNCTION LoginPlayer(
+  _PlayerName TEXT,
+  _Password TEXT,
+  LoggedIn OUT BOOL) RETURNS BOOL as
+$$
+DECLARE
+  p Player;
+BEGIN
+  /* ensure that 2+ players can't test presence of record at same time */
+  LOCK TABLE Player;
+
+  /* see if user is there */
+  SELECT *  INTO p
+  FROM Player WHERE PlayerName = _PlayerName;
+
+  IF FOUND
+  THEN
+    /* if user is there, verify password. */
+    LoggedIn := md5(_Password) = p.Password_Raw;
+  ELSE
+     /* if user is not there, insert and login in. */
+    INSERT INTO Player(PlayerName, Password_Raw)
+    VALUES (_PlayerName, md5(_Password));
+
+    LoggedIn := true;
+  END IF;
+
+END;
+$$ LANGUAGE PLPGSQL;
+
+/* game listing by users what games have been played and are active
+ * GameId
+ *
+ */
+CREATE OR REPLACE FUNCTION GameList(
+  _Player TEXT,
+  GameId OUT INT,
+  Active OUT BOOL,
+  Winner OUT TEXT,
+  Players OUT TEXT[],
+  Started OUT TIMESTAMPTZ,
+  Turn OUT INT,
+  PlayFieldWidth OUT INT,
+  PlayFieldHeight OUT INT,
+  PlanetCount OUT BIGINT) RETURNS SETOF RECORD AS
+$$
+BEGIN
+  RETURN QUERY SELECT
+    g.GameId,
+    g.Ended IS NULL,
+    g.Winner,
+    array_agg(DISTINCT pg.PlayerName),
+    g.Started,
+    g.Turn,
+    g.PlayFieldWidth,
+    g.PlayFieldHeight,
+    COUNT(DISTINCT p.PlanetId)
+  FROM Game g
+  JOIN PlayerGame pg ON g.GameId = pg.GameId
+  LEFT JOIN Planet p ON g.GameId = p.GameId
+  WHERE pg.GameId IN (
+    SELECT pg.GameId FROM PlayerGame pg2
+    WHERE PlayerName = _Player
+  )
+  GROUP BY g.GameId;
+END;
+$$ LANGUAGE PLPGSQL;
+
+
+
+CREATE OR REPLACE FUNCTION GameListJson(
+  _Player TEXT,
+  GameListData OUT JSON) RETURNS JSON AS
+$$
+BEGIN
+  SELECT INTO GameListData json_agg(gl)
+  FROM GameList(_Player) gl;
+END;
+$$ LANGUAGE PLPGSQL;
+
+
 
