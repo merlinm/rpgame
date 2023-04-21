@@ -8,7 +8,7 @@ from asciimatics.scene import Scene
 from asciimatics.screen import Screen                                                                                                                          
 from asciimatics.exceptions import ResizeScreenError, NextScene, StopApplication                                                                               
 import sys                                                                                                                                                     
-import sqlite3   
+import sqlite3
 
 
     # connection_url = URL.create(
@@ -42,11 +42,11 @@ import sqlite3
 
 class ContactModel(object):                                                                                                                                    
     def __init__(self):                                                                                                                                        
-        # Create a database in RAM.                                                                                                                            
-        self._db = sqlite3.connect(':memory:')                                                                                                                 
-        self._db.row_factory = sqlite3.Row                                                                                                                     
+        # Create a database in RAM.
+        self._db = sqlite3.connect(':memory:')
+        self._db.row_factory = sqlite3.Row
 
-        # Create the basic contact table.                                                                                                                      
+        # Create the basic contact table.
         self._db.cursor().execute('''                                                                                                                          
             CREATE TABLE contacts(                                                                                                                             
                 id INTEGER PRIMARY KEY,                                                                                                                        

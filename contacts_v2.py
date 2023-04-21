@@ -88,6 +88,7 @@ class LoginView(Frame):
                 f"Select LoginPlayer ('{given_username}','{given_password}');"
                 )
             connection.commit()
+            
             for row in result.scalars():
                 if not row:
                     print(f"New user {given_username} created successfully.")               # Change to variables
