@@ -12,7 +12,6 @@ def CreateLoginFunc(dbcon, scene, loginName, loginPassword):
             qstring = "Select LoginPlayer ('" + loginName + "','" + loginPassword + "');"
             loginResult = dbcon.execute(text(qstring))
             dbcon.commit()
-            
             if loginResult.first:
                 with scene.container():
                     st.session_state.scene="mainmenu"

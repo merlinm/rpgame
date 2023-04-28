@@ -886,16 +886,20 @@ $$ LANGUAGE PLPGSQL;
 CREATE OR REPLACE FUNCTION LoginPlayer(
   _PlayerName TEXT,
   _Password TEXT,
-  LoggedIn OUT BOOL) RETURNS BOOL as
+  LoggedIn OUT BOOL,
+  NewAccount OUT BOOL) RETURNS RECORD as
 $$
 DECLARE
   p Player;
 BEGIN
+  /* Assume the account is false unless otherwise proven */
+  NewAccount := false;
+
   /* ensure that 2+ players can't test presence of record at same time */
   LOCK TABLE Player;
 
   /* see if user is there */
-  SELECT *  INTO p
+  SELECT * INTO p
   FROM Player WHERE PlayerName = _PlayerName;
 
   IF FOUND
@@ -908,6 +912,7 @@ BEGIN
     VALUES (_PlayerName, md5(_Password));
 
     LoggedIn := true;
+    NewAccount := true;
   END IF;
 
 END;
