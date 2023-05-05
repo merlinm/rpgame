@@ -769,6 +769,105 @@ END;
 $$ LANGUAGE PLPGSQL SECURITY DEFINER;
 
 
+
+/*
+ * Designed to produce groomed planet list to be shown in the interface.
+ * Not authorized, presumption on correct caller arguments supplied.
+ */
+CREATE OR REPLACE FUNCTION ShowMap(
+  _Player TEXT,
+  _GameId INT) RETURNS SETOF TEXT AS
+$$
+DECLARE
+  g Game;
+  _DisplayCharacter TEXT;
+  _row INT;
+  _column INT;
+
+  _DisplayRow TEXT;
+
+  _DisplayHeight INT;
+
+  _PlanetDisplay TEXT[];
+  _MapDisplay TEXT[];
+
+  _DisplayRows TEXT[];
+BEGIN
+  SELECT * INTO g
+  FROM Game WHERE GameId = _GameId;
+
+  -- max, greatest(), IF/ELSE plpgsql, CASE
+  SELECT INTO _DisplayHeight
+    greatest(
+      (
+        /* reserve an extra row for header */
+        SELECT COUNT(*) + 1
+        FROM Planet
+        WHERE GameId = _GameId
+      ),
+      (
+        g.PlayFieldHeight
+      )
+    );
+
+  FOR _row in 1..g.PlayFieldHeight
+  LOOP
+    _DisplayRow := '';
+
+    FOR _column in 1..g.PlayFieldWidth
+    LOOP
+      SELECT
+        DisplayCharacter INTO _DisplayCharacter
+      FROM Planet
+      WHERE
+        GameId = _GameId
+        AND XPosition = _column
+        AND YPosition = _row;
+
+      IF NOT FOUND
+      THEN
+        _DisplayCharacter := '.';
+      END IF;
+
+      _DisplayRow := _DisplayRow || _DisplayCharacter;
+    END LOOP;
+
+    _MapDisplay := _MapDisplay || _DisplayRow;
+  END LOOP;
+
+  RETURN QUERY SELECT * FROM unnest(_MapDisplay);
+END;
+$$ LANGUAGE PLPGSQL;
+
+
+/*
+ * Designed to produce groomed planet list to be shown in the interface.
+ * Not authorized, presumption on correct caller arguments supplied.
+ */
+CREATE OR REPLACE FUNCTION ShowPlanetList(
+  _Player TEXT,
+  _GameId INT,
+  PlanetList OUT JSON) RETURNS JSON AS
+$$
+BEGIN
+  SELECT json_agg(q) INTO PlanetList
+  FROM
+  (
+    SELECT
+      DisplayCharacter,
+      OwnerDone,
+      Ships,
+      AllocatedShips,
+      Production,
+      Defense
+    FROM vw_PlanetAllocated
+    WHERE GameId = _GameId
+    ORDER BY DisplayCharacter
+ ) q;
+END;
+$$ LANGUAGE PLPGSQL;
+
+
 /*
  *  Not every feet has a battle report, but every battle report has a fleet.
  *  Relationship between fleet and bettle report is 1:1
