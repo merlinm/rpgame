@@ -1,8 +1,10 @@
 import streamlit as st
+import pandas as pd
 from sqlalchemy.engine import URL, create_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import NoResultFound, MultipleResultsFound
 from sqlalchemy.sql import text
+from sqlalchemy.dialects.postgresql import JSONB
 import sys
 
 def CreateLoginFunc(dbcon, scene, loginName, loginPassword):
@@ -35,14 +37,15 @@ def CreateHostButtonFunc(dbcon, scene, mapHeight, mapWidth, numPlants, playerlis
                 pString += p + ","
         
         dbcon.begin()
-        qstring = "Select InitializeGame(" + pString + "," + numPlants + "," + mapWidth + "," + mapHeight + ")"
+        qstring = "Call InitializeGame(" + pString + "," + numPlants + "," + mapWidth + "," + mapHeight + ")"
         dbcon.execute(text(qstring))
         dbcon.commit()
         st.session_state.scene="mainmenu"
     return HostButton
 
 def CreateHostFunc():
-    st.session_state.scene="host"
+    #st.session_state.scene="host"
+    st.session_state.scene="playgame"
 
 def CreateRejoinFunc():
     st.session_state.scene="rejoin"
@@ -66,7 +69,7 @@ def BuildHost(scene, dbcon):
         mapHeight = st.sidebar.text_input(label="Map height",value=20)
         mapWidth = st.sidebar.text_input(label="Map width",value=20)
         numPlants = st.sidebar.text_input(label="Number of planets",value=30)
-        st.sidebar.button(label="Back")
+        st.sidebar.button(label="Back",on_click=CreateMainMenuFunc)
     with st.container():
         st.markdown("# Host Game")
         player1 = st.text_input(label="Player 1",value=st.session_state.player,disabled=True)
@@ -83,8 +86,8 @@ def BuildMainMenu(scene, dbcon):
     col4.button(label="Quit",on_click=QuitButton)
  
 def BuildRejoin(scene, dbcon):
-    qstring = "Select * From PlayerGame Where PlayerName = 'roland';"
     scene.markdown("# Join Game List")
+    qstring = "Select * From PlayerGame Where PlayerName = '" + st.session_state.player +"';"
     dbcon.begin()
     qResult = dbcon.execute(text(qstring))
     dbcon.commit()
@@ -95,9 +98,64 @@ def BuildRejoin(scene, dbcon):
         st.warning("No games active.")
         st.button(label="Back",on_click=CreateMainMenuFunc)
 
+def BuildPlayGame(scene, dbcon):
+    #qstring = "Select * From PlayerGame Where PlayerName = '" + st.session_state.player +"';"
+    #dbcon.begin()
+    #qResult = dbcon.execute(text(qstring))
+    #dbcon.commit()
+    st.header(st.session_state.player + " - Game ID: " + "")
+    maptab, planettab, commandtab, historytab = st.tabs(["Map", "Planets", "Commands", "Battle Log"])
+    with st.sidebar:
+        qstring = "Select ShowPlanetList('roland', 4);"
+        dbcon.begin()
+        qResult = dbcon.execute(text(qstring))
+        dbcon.commit()
+        restable = [row._asdict() for row in qResult.all()]
+        makemeatable = restable[0]["showplanetlist"]
+        planetnames = st.sidebar.dataframe(makemeatable)
+        st.button(label="Back",on_click=CreateMainMenuFunc)
+    with maptab:
+        #qstring = "Select ShowMap('" + st.session_state.player +"', " + st.session_state.currentGameID + ");"
+        qstring = "Select ShowMap('roland', 4);"
+        dbcon.begin()
+        qResult = dbcon.execute(text(qstring))
+        dbcon.commit()
+        mapdisplaystring = ""
+        for r in qResult.scalars():
+            mapdisplaystring += r + "\n"
+        mapdisplay = st.text(mapdisplaystring)
+    with planettab:
+        #qstring = "Select ShowPlanetList('" + st.session_state.player +"', " + st.session_state.currentGameID + ");"
+        qstring = "Select ShowPlanetList('roland', 4);"
+        dbcon.begin()
+        qResult = dbcon.execute(text(qstring))
+        dbcon.commit()
+        #df = pd.read_json(qResult)
+        #pddf = pd.DataFrame(qResult.all())
+        #pddf.columns = qResult.keys()
+        #asdf = st.text([type(t) for t in qResult.all()])
+        #planetdisplay = st.json(qResult.all())
+        #planetdisplay = st.dataframe(row.all() for row in qResult.all())
+        #tabledict = dict()
+        
+        #restable = [[getattr(row, col.name) for col in row.__table__.columns] for row in  qResult.all()]
+        restable = [row._asdict() for row in qResult.all()]
+        makemeatable = restable[0]["showplanetlist"]
+        hide_table_row_index = """
+            <style>
+            thead tr th:first-child {display:none}
+            tbody th {display:none}
+            </style>
+            """
+        st.markdown(hide_table_row_index, unsafe_allow_html=True)
+        planetdisplay = st.table(makemeatable)
+        #planetdisplay = st.text(restable)
+        #asdf = st.text(type("asd"))
+
+
+
 def BuildQuit(scene):
     st.text("Thank you for playing! You can now close the tab.")
-        
 
 
 def SceneChanger(scene, dbcon, newScene:str):
@@ -111,5 +169,7 @@ def SceneChanger(scene, dbcon, newScene:str):
             BuildHost(scene, dbcon)
         case "rejoin":
             BuildRejoin(scene, dbcon)
+        case "playgame":
+            BuildPlayGame(scene, dbcon)
         case "quit":
             BuildQuit(scene)
