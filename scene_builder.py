@@ -151,6 +151,12 @@ def BuildPlayGame(scene, dbcon):
         planetdisplay = st.table(makemeatable)
         #planetdisplay = st.text(restable)
         #asdf = st.text(type("asd"))
+    with commandtab:
+        st.button(label="Finish Turn", type = "primary")
+        sourceP = st.text_input(label="Source Planet")
+        destP = st.text_input(label="Destination Planet")
+        fleetSize = st.text_input(label="Fleet Size")
+        st.button(label="Send Ships")
 
 
 
