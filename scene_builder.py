@@ -106,24 +106,46 @@ def BuildPlayGame(scene, dbcon):
     st.header(st.session_state.player + " - Game ID: " + "")
     maptab, planettab, commandtab, historytab = st.tabs(["Map", "Planets", "Commands", "Battle Log"])
     with st.sidebar:
-        qstring = "Select ShowPlanetList('roland', 4);"
-        dbcon.begin()
-        qResult = dbcon.execute(text(qstring))
-        dbcon.commit()
-        restable = [row._asdict() for row in qResult.all()]
-        makemeatable = restable[0]["showplanetlist"]
-        planetnames = st.sidebar.dataframe(makemeatable)
-        st.button(label="Back",on_click=CreateMainMenuFunc)
+        st.button(label="Finish Turn", type = "primary")
+        sourceP = st.text_input(label="Source Planet")
+        destP = st.text_input(label="Destination Planet")
+        fleetSize = st.text_input(label="Fleet Size")
+        st.button(label="Send Ships")
+        #qstring = "Select ShowPlanetList('roland', 4);"
+        #dbcon.begin()
+        #qResult = dbcon.execute(text(qstring))
+        #dbcon.commit()
+        #restable = [row._asdict() for row in qResult.all()]
+        #makemeatable = restable[0]["showplanetlist"]
+        #planetnames = st.sidebar.dataframe(makemeatable)
+        #st.button(label="Back",on_click=CreateMainMenuFunc)
     with maptab:
         #qstring = "Select ShowMap('" + st.session_state.player +"', " + st.session_state.currentGameID + ");"
-        qstring = "Select ShowMap('roland', 4);"
-        dbcon.begin()
-        qResult = dbcon.execute(text(qstring))
-        dbcon.commit()
-        mapdisplaystring = ""
-        for r in qResult.scalars():
-            mapdisplaystring += r + "\n"
-        mapdisplay = st.text(mapdisplaystring)
+        mapCol, planetsCol = st.columns(2)
+        with mapCol:
+            qstring = "Select ShowMap('roland', 4);"
+            dbcon.begin()
+            qResult = dbcon.execute(text(qstring))
+            dbcon.commit()
+            mapdisplaystring = ""
+            for r in qResult.scalars():
+                mapdisplaystring += r + "\n"
+            mapdisplay = st.text(mapdisplaystring)
+        with planetsCol:
+            qstring = "Select ShowPlanetList('roland', 4);"
+            dbcon.begin()
+            qResult = dbcon.execute(text(qstring))
+            dbcon.commit()
+            restable = [row._asdict() for row in qResult.all()]
+            makemeatable = restable[0]["showplanetlist"]
+            hide_table_row_index = """
+                <style>
+                thead tr th:first-child {display:none}
+                tbody th {display:none}
+                </style>
+                """
+            st.markdown(hide_table_row_index, unsafe_allow_html=True)
+            planetdisplay = st.table(makemeatable)
     with planettab:
         #qstring = "Select ShowPlanetList('" + st.session_state.player +"', " + st.session_state.currentGameID + ");"
         qstring = "Select ShowPlanetList('roland', 4);"
@@ -152,11 +174,16 @@ def BuildPlayGame(scene, dbcon):
         #planetdisplay = st.text(restable)
         #asdf = st.text(type("asd"))
     with commandtab:
-        st.button(label="Finish Turn", type = "primary")
-        sourceP = st.text_input(label="Source Planet")
-        destP = st.text_input(label="Destination Planet")
-        fleetSize = st.text_input(label="Fleet Size")
-        st.button(label="Send Ships")
+        a = 1
+        #st.button(label="Finish Turn", type = "primary")
+        #sourceP = st.text_input(label="Source Planet")
+        #destP = st.text_input(label="Destination Planet")
+        #fleetSize = st.text_input(label="Fleet Size")
+        #st.button(label="Send Ships")
+    with historytab:
+        col1, col2 = st.columns(2)
+        col1.write("column 1")
+        col2.write("column 2")
 
 
 
