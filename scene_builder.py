@@ -16,7 +16,7 @@ def CreateLoginFunc(dbcon, scene, loginName, loginPassword):
             dbcon.commit()
             if loginResult.first:
                 with scene.container():
-                    st.session_state.scene="mainmenu"
+                    st.session_state.scene = "mainmenu"
                     st.session_state.player = loginName
         else:
             st.warning("Username and/or password missing.")
@@ -27,12 +27,12 @@ def CreateMainMenuFunc():
 
 def CreateHostButtonFunc(dbcon, scene, mapHeight, mapWidth, numPlants, playerlist):
     def HostButton():
-        pString = "{"
+        pString = "["
         for p in playerlist:
             if p == "":
                 playerlist.remove(p)
             elif playerlist.index(p) == len(playerlist) - 1:
-                pString += p + "}"
+                pString += p + "]"
             else:
                 pString += p + ","
         
@@ -40,18 +40,45 @@ def CreateHostButtonFunc(dbcon, scene, mapHeight, mapWidth, numPlants, playerlis
         qstring = "Call InitializeGame(" + pString + "," + numPlants + "," + mapWidth + "," + mapHeight + ")"
         dbcon.execute(text(qstring))
         dbcon.commit()
-        st.session_state.scene="mainmenu"
+        st.session_state.scene = "mainmenu"
     return HostButton
 
+def CreateEnterCommandFunc(dbcon, scene, sourceP, destP, fleetSize):
+    def EnterCommandButton():
+        qString = "Select AddCommand('" + sourceP + "','" + destP + "','" + fleetSize + "','" + st.session_state.currentGameID + ");"
+        dbcon.begin()
+        dbcon.execute(text(qString))
+        dbcon.commit()
+        st.session_state.scene = "playgame"
+    return EnterCommandButton
+
+def CreateFinishTurnFunc(dbcon, scene):
+    def FinishTurnButton():
+        qString = "Select CommandsDone('" + st.session_state.player + "','" + st.session_state.currentGameID + ");"
+        dbcon.begin()
+        dbcon.execute(text(qString))
+        dbcon.commit()
+        st.session_state.scene = "playgame"
+    return FinishTurnButton
+
+def CreateRejoinButtonFunc(gameID):
+    def RejoinGameButton():
+        if "currentGameID" not in st.session_state:
+            st.session_state.currentGameID = gameID
+        st.session_state.scene = "playgame"
+    return RejoinGameButton
+
 def CreateHostFunc():
-    #st.session_state.scene="host"
-    st.session_state.scene="playgame"
+    st.session_state.scene = "host"
+
+def CreateJoinFunc():
+    st.session_state.scene = "playgame"
 
 def CreateRejoinFunc():
-    st.session_state.scene="rejoin"
+    st.session_state.scene = "rejoin"
 
 def QuitButton():
-    st.session_state.scene="quit"
+    st.session_state.scene = "quit"
 
 def InitialBuild():
     if "scene" not in st.session_state:
@@ -81,49 +108,39 @@ def BuildHost(scene, dbcon):
 def BuildMainMenu(scene, dbcon):
     col1, col2, col3, col4 = scene.columns(4)
     col1.button(label="Host Game",on_click=CreateHostFunc)
-    col2.button("Join Game")
+    col2.button(label="Join Game",on_click=CreateJoinFunc)
     col3.button(label="Rejoin Game",on_click=CreateRejoinFunc)
     col4.button(label="Quit",on_click=QuitButton)
  
 def BuildRejoin(scene, dbcon):
-    scene.markdown("# Join Game List")
-    qstring = "Select * From PlayerGame Where PlayerName = '" + st.session_state.player +"';"
-    dbcon.begin()
-    qResult = dbcon.execute(text(qstring))
-    dbcon.commit()
-    if qResult.first is not None:
-        st.table(qResult)
+    with st.sidebar:
+        gameID = st.text_input(label="Game ID")
+        st.button(label="Submit",on_click=CreateRejoinButtonFunc(gameID))
         st.button(label="Back",on_click=CreateMainMenuFunc)
-    else:
-        st.warning("No games active.")
-        st.button(label="Back",on_click=CreateMainMenuFunc)
+    with st.container():
+        scene.markdown("# Join Game List - " + st.session_state.player)
+        qstring = "Select gameid as \"Game ID\", commandsdone as \"Turn Completed\" From PlayerGame Where PlayerName = '" + st.session_state.player + "';"
+        dbcon.begin()
+        qResult = dbcon.execute(text(qstring))
+        dbcon.commit()
+        if qResult.rowcount != 0:
+            st.table(qResult.mappings().all())
+        else:
+            st.warning("No games active.")
 
 def BuildPlayGame(scene, dbcon):
-    #qstring = "Select * From PlayerGame Where PlayerName = '" + st.session_state.player +"';"
-    #dbcon.begin()
-    #qResult = dbcon.execute(text(qstring))
-    #dbcon.commit()
-    st.header(st.session_state.player + " - Game ID: " + "")
-    maptab, planettab, commandtab, historytab = st.tabs(["Map", "Planets", "Commands", "Battle Log"])
+    st.header(st.session_state.player + " - Game ID: " + st.session_state.currentGameID)
+    infotab, commandtab, historytab = st.tabs(["Game Board", "Sent Commands", "Battle Log"])
     with st.sidebar:
-        st.button(label="Finish Turn", type = "primary")
+        st.button(label="Finish Turn",type="primary",on_click=CreateFinishTurnFunc(dbcon, scene))
         sourceP = st.text_input(label="Source Planet")
         destP = st.text_input(label="Destination Planet")
         fleetSize = st.text_input(label="Fleet Size")
-        st.button(label="Send Ships")
-        #qstring = "Select ShowPlanetList('roland', 4);"
-        #dbcon.begin()
-        #qResult = dbcon.execute(text(qstring))
-        #dbcon.commit()
-        #restable = [row._asdict() for row in qResult.all()]
-        #makemeatable = restable[0]["showplanetlist"]
-        #planetnames = st.sidebar.dataframe(makemeatable)
-        #st.button(label="Back",on_click=CreateMainMenuFunc)
-    with maptab:
-        #qstring = "Select ShowMap('" + st.session_state.player +"', " + st.session_state.currentGameID + ");"
+        st.button(label="Send Ships",on_click=CreateEnterCommandFunc(dbcon, scene, sourceP, destP, fleetSize))
+    with infotab:
         mapCol, planetsCol = st.columns(2)
         with mapCol:
-            qstring = "Select ShowMap('roland', 4);"
+            qstring = "Select ShowMap('" + st.session_state.player + "', " + st.session_state.currentGameID + ");"
             dbcon.begin()
             qResult = dbcon.execute(text(qstring))
             dbcon.commit()
@@ -132,12 +149,12 @@ def BuildPlayGame(scene, dbcon):
                 mapdisplaystring += r + "\n"
             mapdisplay = st.text(mapdisplaystring)
         with planetsCol:
-            qstring = "Select ShowPlanetList('roland', 4);"
+            qstring = "Select ShowPlanetList('" + st.session_state.player + "', " + st.session_state.currentGameID + ");"
             dbcon.begin()
             qResult = dbcon.execute(text(qstring))
             dbcon.commit()
             restable = [row._asdict() for row in qResult.all()]
-            makemeatable = restable[0]["showplanetlist"]
+            parsetable = restable[0]["showplanetlist"]
             hide_table_row_index = """
                 <style>
                 thead tr th:first-child {display:none}
@@ -145,45 +162,11 @@ def BuildPlayGame(scene, dbcon):
                 </style>
                 """
             st.markdown(hide_table_row_index, unsafe_allow_html=True)
-            planetdisplay = st.table(makemeatable)
-    with planettab:
-        #qstring = "Select ShowPlanetList('" + st.session_state.player +"', " + st.session_state.currentGameID + ");"
-        qstring = "Select ShowPlanetList('roland', 4);"
-        dbcon.begin()
-        qResult = dbcon.execute(text(qstring))
-        dbcon.commit()
-        #df = pd.read_json(qResult)
-        #pddf = pd.DataFrame(qResult.all())
-        #pddf.columns = qResult.keys()
-        #asdf = st.text([type(t) for t in qResult.all()])
-        #planetdisplay = st.json(qResult.all())
-        #planetdisplay = st.dataframe(row.all() for row in qResult.all())
-        #tabledict = dict()
-        
-        #restable = [[getattr(row, col.name) for col in row.__table__.columns] for row in  qResult.all()]
-        restable = [row._asdict() for row in qResult.all()]
-        makemeatable = restable[0]["showplanetlist"]
-        hide_table_row_index = """
-            <style>
-            thead tr th:first-child {display:none}
-            tbody th {display:none}
-            </style>
-            """
-        st.markdown(hide_table_row_index, unsafe_allow_html=True)
-        planetdisplay = st.table(makemeatable)
-        #planetdisplay = st.text(restable)
-        #asdf = st.text(type("asd"))
+            planetdisplay = st.table(parsetable)
     with commandtab:
-        a = 1
-        #st.button(label="Finish Turn", type = "primary")
-        #sourceP = st.text_input(label="Source Planet")
-        #destP = st.text_input(label="Destination Planet")
-        #fleetSize = st.text_input(label="Fleet Size")
-        #st.button(label="Send Ships")
+        st.text("To display entered commands where you can remove specific commands entered on the turn")
     with historytab:
-        col1, col2 = st.columns(2)
-        col1.write("column 1")
-        col2.write("column 2")
+        st.text("To display a history of the battle feed")
 
 
 
