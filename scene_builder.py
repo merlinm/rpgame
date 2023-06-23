@@ -43,13 +43,15 @@ def CreateHostButtonFunc(dbcon, scene, mapHeight, mapWidth, numPlants, playerlis
         st.session_state.scene = "mainmenu"
     return HostButton
 
-def CreateEnterCommandFunc(dbcon, scene, sourceP, destP, fleetSize):
+def CreateEnterCommandFunc(dbcon, scene, sourceP, destP, fleetSize, commandtab):
     def EnterCommandButton():
         qString = "Select AddCommand('" + sourceP + "','" + destP + "','" + fleetSize + "','" + st.session_state.currentGameID + ");"
         dbcon.begin()
         dbcon.execute(text(qString))
         dbcon.commit()
         st.session_state.scene = "playgame"
+        #with commandtab:
+        #    st.text("Sending " + fleetSize + " ships from planet " + sourceP + " to planet " + destP)
     return EnterCommandButton
 
 def CreateFinishTurnFunc(dbcon, scene):
@@ -78,7 +80,7 @@ def CreateRejoinFunc():
     st.session_state.scene = "rejoin"
 
 def QuitButton():
-    st.session_state.scene = "quit"
+    st.session_state.scene = "login"
 
 def InitialBuild():
     if "scene" not in st.session_state:
@@ -125,6 +127,13 @@ def BuildRejoin(scene, dbcon):
         dbcon.commit()
         if qResult.rowcount != 0:
             st.table(qResult.mappings().all())
+            hide_table_row_index = """
+                <style>
+                thead tr th:first-child {display:none}
+                tbody th {display:none}
+                </style>
+                """
+            st.markdown(hide_table_row_index, unsafe_allow_html=True)
         else:
             st.warning("No games active.")
 
@@ -136,7 +145,8 @@ def BuildPlayGame(scene, dbcon):
         sourceP = st.text_input(label="Source Planet")
         destP = st.text_input(label="Destination Planet")
         fleetSize = st.text_input(label="Fleet Size")
-        st.button(label="Send Ships",on_click=CreateEnterCommandFunc(dbcon, scene, sourceP, destP, fleetSize))
+        st.button(label="Send Ships",on_click=CreateEnterCommandFunc(dbcon, scene, sourceP, destP, fleetSize, commandtab))
+        st.sidebar.button(label="Back",on_click=CreateMainMenuFunc)
     with infotab:
         mapCol, planetsCol = st.columns(2)
         with mapCol:
@@ -164,7 +174,7 @@ def BuildPlayGame(scene, dbcon):
             st.markdown(hide_table_row_index, unsafe_allow_html=True)
             planetdisplay = st.table(parsetable)
     with commandtab:
-        st.text("To display entered commands where you can remove specific commands entered on the turn")
+        st.empty()
     with historytab:
         st.text("To display a history of the battle feed")
 
