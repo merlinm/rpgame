@@ -6,6 +6,7 @@ from sqlalchemy.orm.exc import NoResultFound, MultipleResultsFound
 from sqlalchemy.sql import text
 from sqlalchemy.dialects.postgresql import JSONB
 import sys
+from validations import IsValid
 
 def CreateLoginFunc(dbcon, scene, loginName, loginPassword):
     def LoginButton():
