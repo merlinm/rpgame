@@ -63,10 +63,16 @@ def CreateFinishTurnFunc(dbcon, scene):
         st.session_state.scene = "playgame"
     return FinishTurnButton
 
-def CreateRejoinButtonFunc(gameID):
+def CreateRejoinButtonFunc(dbcon, gameId):
     def RejoinGameButton():
-        if "currentGameID" not in st.session_state:
-            st.session_state.currentGameID = gameID
+        if "currentGameId" not in st.session_state:
+            st.session_state.currentGameId = gameId
+        qstring = "Select Turn From Game Where GameId = " + gameId + ";"
+        dbcon.begin()
+        qResult = dbcon.execute(text(qstring))
+        dbcon.commit()
+        if "currentGameIdTurn" not in st.session_state:
+            st.session_state.currentGameIdTurn = qResult.scalar()
         st.session_state.scene = "playgame"
     return RejoinGameButton
 
@@ -116,8 +122,8 @@ def BuildMainMenu(scene, dbcon):
  
 def BuildRejoin(scene, dbcon):
     with st.sidebar:
-        gameID = st.text_input(label="Game ID")
-        st.button(label="Submit",on_click=CreateRejoinButtonFunc(gameID))
+        gameId = st.text_input(label="Game ID")
+        st.button(label="Submit",on_click=CreateRejoinButtonFunc(dbcon, gameId))
         st.button(label="Back",on_click=CreateMainMenuFunc)
     with st.container():
         scene.markdown("# Join Game List - " + st.session_state.player)
@@ -138,7 +144,8 @@ def BuildRejoin(scene, dbcon):
             st.warning("No games active.")
 
 def BuildPlayGame(scene, dbcon):
-    st.header(st.session_state.player + " - Game ID: " + st.session_state.currentGameID)
+    st.header(st.session_state.player + " - Game ID: " + st.session_state.currentGameId)
+    turncounter = st.header("Turn: " + str(st.session_state.currentGameIdTurn))
     infotab, commandtab, historytab = st.tabs(["Game Board", "Sent Commands", "Battle Log"])
     with st.sidebar:
         st.button(label="Finish Turn",type="primary",on_click=CreateFinishTurnFunc(dbcon, scene))
@@ -147,10 +154,25 @@ def BuildPlayGame(scene, dbcon):
         fleetSize = st.text_input(label="Fleet Size")
         st.button(label="Send Ships",on_click=CreateEnterCommandFunc(dbcon, scene, sourceP, destP, fleetSize, commandtab))
         st.sidebar.button(label="Back",on_click=CreateMainMenuFunc)
+    UpdatePlayGame(dbcon, turncounter, infotab, commandtab, historytab)
+    
+
+def UpdatePlayGame(dbcon, turncounter, infotab, commandtab, historytab, pausedelay = False):
+    if pausedelay:
+        a = 1 # possible pause before update for recurring updates?
+    qstring = "Select Turn From Game Where GameId = " + st.session_state.currentGameId + ";"
+    dbcon.begin()
+    qResult = dbcon.execute(text(qstring))
+    dbcon.commit()
+    turnResult = qResult.scalar()
+    if turnResult != st.session_state.currentGameIdTurn:
+        st.session_state.currentGameIdTurn = turnResult
+        turncounter.body = "Turn: " + str(st.session_state.currentGameIdTurn)
+
     with infotab:
         mapCol, planetsCol = st.columns(2)
         with mapCol:
-            qstring = "Select ShowMap('" + st.session_state.player + "', " + st.session_state.currentGameID + ");"
+            qstring = "Select ShowMap('" + st.session_state.player + "', " + st.session_state.currentGameId + ");"
             dbcon.begin()
             qResult = dbcon.execute(text(qstring))
             dbcon.commit()
@@ -159,7 +181,7 @@ def BuildPlayGame(scene, dbcon):
                 mapdisplaystring += r + "\n"
             mapdisplay = st.text(mapdisplaystring)
         with planetsCol:
-            qstring = "Select ShowPlanetList('" + st.session_state.player + "', " + st.session_state.currentGameID + ");"
+            qstring = "Select ShowPlanetList('" + st.session_state.player + "', " + st.session_state.currentGameId + ");"
             dbcon.begin()
             qResult = dbcon.execute(text(qstring))
             dbcon.commit()
@@ -177,7 +199,6 @@ def BuildPlayGame(scene, dbcon):
         st.empty()
     with historytab:
         st.text("To display a history of the battle feed")
-
 
 
 def BuildQuit(scene):
