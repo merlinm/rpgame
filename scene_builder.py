@@ -1,11 +1,13 @@
 import streamlit as st
 import pandas as pd
+import asyncio as ac
 from sqlalchemy.engine import URL, create_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import NoResultFound, MultipleResultsFound
 from sqlalchemy.sql import text
 from sqlalchemy.dialects.postgresql import JSONB
 import sys
+#from validations import IsValid
 
 def CreateLoginFunc(dbcon, scene, loginName, loginPassword):
     def LoginButton():
@@ -23,6 +25,12 @@ def CreateLoginFunc(dbcon, scene, loginName, loginPassword):
     return LoginButton
 
 def CreateMainMenuFunc():
+    if "currentGameID" not in st.session_state:
+        st.session_state.currentGameId = 0
+        st.session_state.currentGameTurn = 0
+    else:
+        st.session_state.currentGameId = 0
+        st.session_state.currentGameTurn = 0
     st.session_state.scene="mainmenu"
 
 def CreateHostButtonFunc(dbcon, scene, mapHeight, mapWidth, numPlants, playerlist):
@@ -63,16 +71,11 @@ def CreateFinishTurnFunc(dbcon, scene):
         st.session_state.scene = "playgame"
     return FinishTurnButton
 
-def CreateRejoinButtonFunc(dbcon, gameId):
+def CreateRejoinButtonFunc(gameId):
     def RejoinGameButton():
-        if "currentGameId" not in st.session_state:
+        if "currentGameID" not in st.session_state:
             st.session_state.currentGameId = gameId
-        qstring = "Select Turn From Game Where GameId = " + gameId + ";"
-        dbcon.begin()
-        qResult = dbcon.execute(text(qstring))
-        dbcon.commit()
-        if "currentGameIdTurn" not in st.session_state:
-            st.session_state.currentGameIdTurn = qResult.scalar()
+            st.session_state.currentGameTurn = 0
         st.session_state.scene = "playgame"
     return RejoinGameButton
 
@@ -123,7 +126,7 @@ def BuildMainMenu(scene, dbcon):
 def BuildRejoin(scene, dbcon):
     with st.sidebar:
         gameId = st.text_input(label="Game ID")
-        st.button(label="Submit",on_click=CreateRejoinButtonFunc(dbcon, gameId))
+        st.button(label="Submit",on_click=CreateRejoinButtonFunc(gameId))
         st.button(label="Back",on_click=CreateMainMenuFunc)
     with st.container():
         scene.markdown("# Join Game List - " + st.session_state.player)
@@ -144,8 +147,13 @@ def BuildRejoin(scene, dbcon):
             st.warning("No games active.")
 
 def BuildPlayGame(scene, dbcon):
-    st.header(st.session_state.player + " - Game ID: " + st.session_state.currentGameId)
-    turncounter = st.header("Turn: " + str(st.session_state.currentGameIdTurn))
+    qstring = "Select Turn From Game Where GameID = " + st.session_state.currentGameId + ";"
+    dbcon.begin()
+    qResult = dbcon.execute(text(qstring))
+    dbcon.commit()
+    #st.session_state.currentGameTurn = qResult.scalar()
+    gameHeader = st.header(st.session_state.player + " - Game ID: " + st.session_state.currentGameId)
+    
     infotab, commandtab, historytab = st.tabs(["Game Board", "Sent Commands", "Battle Log"])
     with st.sidebar:
         st.button(label="Finish Turn",type="primary",on_click=CreateFinishTurnFunc(dbcon, scene))
@@ -154,51 +162,66 @@ def BuildPlayGame(scene, dbcon):
         fleetSize = st.text_input(label="Fleet Size")
         st.button(label="Send Ships",on_click=CreateEnterCommandFunc(dbcon, scene, sourceP, destP, fleetSize, commandtab))
         st.sidebar.button(label="Back",on_click=CreateMainMenuFunc)
-    UpdatePlayGame(dbcon, turncounter, infotab, commandtab, historytab)
-    
-
-def UpdatePlayGame(dbcon, turncounter, infotab, commandtab, historytab, pausedelay = False):
-    if pausedelay:
-        a = 1 # possible pause before update for recurring updates?
-    qstring = "Select Turn From Game Where GameId = " + st.session_state.currentGameId + ";"
-    dbcon.begin()
-    qResult = dbcon.execute(text(qstring))
-    dbcon.commit()
-    turnResult = qResult.scalar()
-    if turnResult != st.session_state.currentGameIdTurn:
-        st.session_state.currentGameIdTurn = turnResult
-        turncounter.body = "Turn: " + str(st.session_state.currentGameIdTurn)
-
     with infotab:
-        mapCol, planetsCol = st.columns(2)
-        with mapCol:
-            qstring = "Select ShowMap('" + st.session_state.player + "', " + st.session_state.currentGameId + ");"
-            dbcon.begin()
-            qResult = dbcon.execute(text(qstring))
-            dbcon.commit()
-            mapdisplaystring = ""
-            for r in qResult.scalars():
-                mapdisplaystring += r + "\n"
-            mapdisplay = st.text(mapdisplaystring)
-        with planetsCol:
-            qstring = "Select ShowPlanetList('" + st.session_state.player + "', " + st.session_state.currentGameId + ");"
-            dbcon.begin()
-            qResult = dbcon.execute(text(qstring))
-            dbcon.commit()
-            restable = [row._asdict() for row in qResult.all()]
-            parsetable = restable[0]["showplanetlist"]
-            hide_table_row_index = """
-                <style>
-                thead tr th:first-child {display:none}
-                tbody th {display:none}
-                </style>
-                """
-            st.markdown(hide_table_row_index, unsafe_allow_html=True)
-            planetdisplay = st.table(parsetable)
+        ph = st.empty()
+        ph.empty()
+        #mapCol, planetsCol = st.columns(2)
+        #with mapCol:
+        #    st.empty()
+        #with planetsCol:
+        #    st.empty()
     with commandtab:
         st.empty()
     with historytab:
-        st.text("To display a history of the battle feed")
+        st.empty()
+    ac.run(UpdatePlayGame(dbcon, infotab, ph, commandtab, historytab))
+    
+
+async def UpdatePlayGame(dbcon, infotab, ph, commandtab, historytab):
+    while st.session_state.currentGameId != 0:
+        qstring = "Select Turn From Game Where GameId = " + st.session_state.currentGameId + ";"
+        dbcon.begin()
+        qResult = dbcon.execute(text(qstring))
+        dbcon.commit()
+        turnResult = qResult.scalar()
+        turnchanged = turnResult != st.session_state.currentGameTurn
+        if turnchanged:
+            st.session_state.currentGameTurn = turnResult
+            ph.empty()
+            with ph.container():
+                mapCol, planetsCol = st.columns(2)
+                with mapCol:
+                    turnHeader = st.subheader("Turn: " + str(turnResult))
+                    qstring = "Select ShowMap('" + st.session_state.player + "', " + st.session_state.currentGameId + ");"
+                    dbcon.begin()
+                    qResult = dbcon.execute(text(qstring))
+                    dbcon.commit()
+                    mapdisplaystring = ""
+                    for r in qResult.scalars():
+                        mapdisplaystring += r + "\n"
+                    st.text(mapdisplaystring)
+                with planetsCol:
+                    qstring = "Select ShowPlanetList('" + st.session_state.player + "', " + st.session_state.currentGameId + ");"
+                    dbcon.begin()
+                    qResult = dbcon.execute(text(qstring))
+                    dbcon.commit()
+                    restable = [row._asdict() for row in qResult.all()]
+                    parsetable = restable[0]["showplanetlist"]
+                    hide_table_row_index = """
+                        <style>
+                        thead tr th:first-child {display:none}
+                        tbody th {display:none}
+                        </style>
+                        """
+                    st.markdown(hide_table_row_index, unsafe_allow_html=True)
+                    st.table(parsetable)
+            with commandtab:
+                st.empty()
+            with historytab:
+                st.empty()
+            with infotab:
+                st.empty()
+        await ac.sleep(2)
 
 
 def BuildQuit(scene):
