@@ -68,7 +68,7 @@ def CreateFinishTurnFunc(dbcon, scene):
         dbcon.begin()
         dbcon.execute(text(qString))
         dbcon.commit()
-        st.session_state.scene = "playgame"
+        #st.session_state.scene = "playgame"
     return FinishTurnButton
 
 def CreateRejoinButtonFunc(gameId):
