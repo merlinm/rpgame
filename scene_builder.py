@@ -221,7 +221,7 @@ async def UpdatePlayGame(dbcon, infotab, ph, commandtab, historytab):
                 st.empty()
             with infotab:
                 st.empty()
-        await ac.sleep(2)
+        await ac.sleep(1)
 
 
 def BuildQuit(scene):
