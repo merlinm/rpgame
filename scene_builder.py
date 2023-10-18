@@ -9,19 +9,30 @@ from sqlalchemy.dialects.postgresql import JSONB
 import sys
 #from validations import IsValid
 
+# Login page
 def CreateLoginFunc(dbcon, scene, loginName, loginPassword):
     def LoginButton():
         if loginName != "" and loginPassword != "":
             dbcon.begin()
             qstring = "Select LoginPlayer ('" + loginName + "','" + loginPassword + "');"
-            loginResult = dbcon.execute(text(qstring))
+            loginPlayerResult = dbcon.execute(text(qstring))
+            # Returns a tuple with true or false flags for Login and Password combinations
+            loginPlayerTest = loginPlayerResult.all()
+            #print(loginPlayerTest[0][0][1],loginPlayerTest[0][0][3])   #TEST
             dbcon.commit()
-            if loginResult.first:
-                with scene.container():
-                    st.session_state.scene = "mainmenu"
-                    st.session_state.player = loginName
+            if loginPlayerTest[0][0][1] == 't':
+                if loginPlayerTest[0][0][3] == 't':
+                    with scene.container():
+                        st.session_state.scene = "mainmenu"
+                        st.session_state.player = loginName
+                else:
+                    st.warning(f"Password provided for {loginName} is incorrect.")
+                    return LoginButton
+            else:
+                st.warning(f"Username provided does not exist.")
+                return LoginButton
         else:
-            st.warning("Username and/or password missing.")
+            st.warning("Username and/or password are missing.")
     return LoginButton
 
 def CreateMainMenuFunc():
@@ -71,6 +82,7 @@ def CreateFinishTurnFunc(dbcon, scene):
         #st.session_state.scene = "playgame"
     return FinishTurnButton
 
+# Rejoin button in main menu
 def CreateRejoinButtonFunc(gameId):
     def RejoinGameButton():
         if "currentGameID" not in st.session_state:
@@ -82,8 +94,8 @@ def CreateRejoinButtonFunc(gameId):
 def CreateHostFunc():
     st.session_state.scene = "host"
 
-def CreateJoinFunc():
-    st.session_state.scene = "playgame"
+#def CreateJoinFunc():                        #Removed from requirements 10/17/23
+#    st.session_state.scene = "playgame"      #Removed from requirements 10/17/23
 
 def CreateRejoinFunc():
     st.session_state.scene = "rejoin"
@@ -117,13 +129,16 @@ def BuildHost(scene, dbcon):
         st.button(label="Host Game",on_click=CreateHostButtonFunc(dbcon, scene, mapHeight, mapWidth, numPlants, [player1, player2, player3, player4]))
 
 def BuildMainMenu(scene, dbcon):
-    col1, col2, col3, col4 = scene.columns(4)
+    col1, col2, col3 = scene.columns(3)
+    #col1, col2, col3, col4 = scene.columns(4)              #Removed Join Game button 10/17/23
     col1.button(label="Host Game",on_click=CreateHostFunc)
-    col2.button(label="Join Game",on_click=CreateJoinFunc)
-    col3.button(label="Rejoin Game",on_click=CreateRejoinFunc)
-    col4.button(label="Quit",on_click=QuitButton)
- 
+    #col2.button(label="Join Game",on_click=CreateJoinFunc) #Removed Join Game button 10/17/23
+    col2.button(label="Rejoin Game",on_click=CreateRejoinFunc)
+    col3.button(label="Quit",on_click=QuitButton)
+
+# Rejoin page
 def BuildRejoin(scene, dbcon):
+    avail_game_ids = []
     with st.sidebar:
         gameId = st.text_input(label="Game ID")
         st.button(label="Submit",on_click=CreateRejoinButtonFunc(gameId))
@@ -135,6 +150,8 @@ def BuildRejoin(scene, dbcon):
         qResult = dbcon.execute(text(qstring))
         dbcon.commit()
         if qResult.rowcount != 0:
+            avail_game_ids = qResult #TEST Karls
+            st.warning(avail_game_ids) #TEST Karls
             st.table(qResult.mappings().all())
             hide_table_row_index = """
                 <style>
@@ -145,6 +162,7 @@ def BuildRejoin(scene, dbcon):
             st.markdown(hide_table_row_index, unsafe_allow_html=True)
         else:
             st.warning("No games active.")
+            st.warning(avail_game_ids) #TEST karls
 
 def BuildPlayGame(scene, dbcon):
     qstring = "Select Turn From Game Where GameID = " + st.session_state.currentGameId + ";"
