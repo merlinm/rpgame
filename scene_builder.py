@@ -16,20 +16,18 @@ def CreateLoginFunc(dbcon, scene, loginName, loginPassword):
             dbcon.begin()
             qstring = "Select LoginPlayer ('" + loginName + "','" + loginPassword + "');"
             loginPlayerResult = dbcon.execute(text(qstring))
-            # Returns a tuple with true or false flags for Login and Password combinations
+            # loginPlayerResult contains a tuple with true or false flags. 
+            # One for successful login and another to identify if a new user was created.
             loginPlayerTest = loginPlayerResult.all()
-            #print(loginPlayerTest[0][0][1],loginPlayerTest[0][0][3])   #TEST
             dbcon.commit()
             if loginPlayerTest[0][0][1] == 't':
                 if loginPlayerTest[0][0][3] == 't':
-                    with scene.container():
-                        st.session_state.scene = "mainmenu"
-                        st.session_state.player = loginName
-                else:
-                    st.warning(f"Password provided for {loginName} is incorrect.")
-                    return LoginButton
+                    st.warning(f"User {loginName} was created.")
+                with scene.container():
+                    st.session_state.scene = "mainmenu"
+                    st.session_state.player = loginName
             else:
-                st.warning(f"Username provided does not exist.")
+                st.warning(f"Incorrect username or password provided.")
                 return LoginButton
         else:
             st.warning("Username and/or password are missing.")
