@@ -42,6 +42,7 @@ def CreateMainMenuFunc():
         st.session_state.currentGameTurn = 0
     st.session_state.scene="mainmenu"
 
+# Initializes the game from Host Game page
 def CreateHostButtonFunc(dbcon, scene, mapHeight, mapWidth, numPlants, playerlist):
     def HostButton():
         pString = "["
@@ -52,9 +53,8 @@ def CreateHostButtonFunc(dbcon, scene, mapHeight, mapWidth, numPlants, playerlis
                 pString += p + "]"
             else:
                 pString += p + ","
-        
         dbcon.begin()
-        qstring = "Call InitializeGame(" + pString + "," + numPlants + "," + mapWidth + "," + mapHeight + ")"
+        qstring = f"Call InitializeGame(array{playerlist}, {numPlants}, {mapWidth}, {mapHeight});"
         dbcon.execute(text(qstring))
         dbcon.commit()
         st.session_state.scene = "mainmenu"
