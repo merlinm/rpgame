@@ -57,7 +57,7 @@ def CreateHostButtonFunc(dbcon, scene, mapHeight, mapWidth, numPlants, playerlis
         qstring = f"Call InitializeGame(array{playerlist}, {numPlants}, {mapWidth}, {mapHeight});"
         dbcon.execute(text(qstring))
         dbcon.commit()
-        st.session_state.scene = "mainmenu"
+        st.session_state.scene = "rejoin" 
     return HostButton
 
 def CreateEnterCommandFunc(dbcon, scene, sourceP, destP, fleetSize, commandtab):
