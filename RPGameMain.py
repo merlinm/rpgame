@@ -22,9 +22,7 @@ def main():
 
     dbcon = Session(engine)
 
-
     scene_builder.InitialBuild()
-
     scene_builder.SceneChanger(scene, dbcon, st.session_state.scene)
 
 if __name__ == "__main__":
