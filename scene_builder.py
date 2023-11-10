@@ -149,7 +149,7 @@ def BuildRejoin(scene, dbcon):
                                value = lastGameId, # Defaults to latest game
                                help = "Press the Enter key before submitting Game ID",
                                disabled = noGames)
-        st.button(label="Submit",on_click=CreateRejoinButtonFunc(gameId))
+        st.button(label="Submit",disabled = noGames,on_click=CreateRejoinButtonFunc(gameId))
         st.button(label="Back",on_click=CreateMainMenuFunc)
     with st.container():
         scene.markdown("# Join Game List - " + st.session_state.player)
