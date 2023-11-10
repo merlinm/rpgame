@@ -490,16 +490,6 @@ BEGIN
   FROM UNNEST(_Players) AS Player
   ON CONFLICT DO NOTHING;
 
-  FOR pl IN (
-    SELECT * FROM Player WHERE NOT EXISTS (
-        SELECT 1 FROM pg_roles WHERE rolname = lower(PlayerName)
-      ))
-  LOOP
-    EXECUTE format($q$CREATE ROLE %s LOGIN PASSWORD '%s'$q$,
-      pl.PlayerName,
-      pl.Password_Raw);
-  END LOOP;
-
   INSERT INTO Game (GameId, Started, PlayFieldWidth, PlayFieldHeight)
   VALUES (DEFAULT, CURRENT_TIMESTAMP, _PlayFieldWidth, _PlayFieldHeight)
   RETURNING GameId INTO _GameId; 
@@ -657,6 +647,12 @@ $$ LANGUAGE PLPGSQL;
  *   needs to show players and if have completed command
  */
 CREATE OR REPLACE FUNCTION ShowPlayfield(
+  _GameId INT) RETURNS SETOF TEXT AS
+$$
+  SELECT ShowPlayfield(current_user, _GameId);
+$$ LANGUAGE SQL;
+
+CREATE OR REPLACE FUNCTION ShowPlayfield(
   _Player TEXT DEFAULT current_user,
   _GameId INT DEFAULT NULL) RETURNS SETOF TEXT AS
 $$
@@ -775,6 +771,12 @@ $$ LANGUAGE PLPGSQL SECURITY DEFINER;
  * Not authorized, presumption on correct caller arguments supplied.
  */
 CREATE OR REPLACE FUNCTION ShowMap(
+  _GameId INT) RETURNS SETOF TEXT AS
+$$
+  SELECT ShowMap(current_user, _GameId);
+$$ LANGUAGE SQL;
+
+CREATE OR REPLACE FUNCTION ShowMap(
   _Player TEXT,
   _GameId INT) RETURNS SETOF TEXT AS
 $$
@@ -792,6 +794,7 @@ DECLARE
   _MapDisplay TEXT[];
 
   _DisplayRows TEXT[];
+
 BEGIN
   SELECT * INTO g
   FROM Game WHERE GameId = _GameId;
@@ -810,6 +813,23 @@ BEGIN
       )
     );
 
+  _DisplayRow := '';
+
+  FOR _column in 1..g.PlayFieldWidth + 1
+  LOOP
+    IF _column = 1
+    THEN
+      _DisplayRow := _DisplayRow || '┌───';
+    ELSEIF _column < g.PlayFieldWidth + 1
+    THEN 
+      _DisplayRow := _DisplayRow || '┬───';
+    ELSE
+      _DisplayRow := _DisplayRow || '┐';
+    END IF;
+  END LOOP;
+
+  _MapDisplay := _MapDisplay || _DisplayRow;
+
   FOR _row in 1..g.PlayFieldHeight
   LOOP
     _DisplayRow := '';
@@ -817,7 +837,7 @@ BEGIN
     FOR _column in 1..g.PlayFieldWidth
     LOOP
       SELECT
-        DisplayCharacter INTO _DisplayCharacter
+        '│ ' || DisplayCharacter || ' ' INTO _DisplayCharacter
       FROM Planet
       WHERE
         GameId = _GameId
@@ -826,11 +846,20 @@ BEGIN
 
       IF NOT FOUND
       THEN
-        _DisplayCharacter := '.';
+        _DisplayCharacter := '│   ';
       END IF;
 
       _DisplayRow := _DisplayRow || _DisplayCharacter;
     END LOOP;
+
+    _DisplayRow := _DisplayRow || '│' || E'\n';
+
+    FOR _column in 1..g.PlayFieldWidth
+    LOOP
+      _DisplayRow := _DisplayRow || '┼───';
+    END LOOP;    
+
+    _DisplayRow := _DisplayRow || '│';
 
     _MapDisplay := _MapDisplay || _DisplayRow;
   END LOOP;
