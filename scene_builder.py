@@ -57,7 +57,7 @@ def CreateHostButtonFunc(dbcon, scene, mapHeight, mapWidth, numPlants, playerlis
         qstring = f"Call InitializeGame(array{playerlist}, {numPlants}, {mapWidth}, {mapHeight});"
         dbcon.execute(text(qstring))
         dbcon.commit()
-        st.session_state.scene = "mainmenu"
+        st.session_state.scene = "rejoin" 
     return HostButton
 
 def CreateEnterCommandFunc(dbcon, scene, sourceP, destP, fleetSize, commandtab):
@@ -92,9 +92,6 @@ def CreateRejoinButtonFunc(gameId):
 def CreateHostFunc():
     st.session_state.scene = "host"
 
-#def CreateJoinFunc():                        #Removed from requirements 10/17/23
-#    st.session_state.scene = "playgame"      #Removed from requirements 10/17/23
-
 def CreateRejoinFunc():
     st.session_state.scene = "rejoin"
 
@@ -128,17 +125,30 @@ def BuildHost(scene, dbcon):
 
 def BuildMainMenu(scene, dbcon):
     col1, col2, col3 = scene.columns(3)
-    #col1, col2, col3, col4 = scene.columns(4)              #Removed Join Game button 10/17/23
     col1.button(label="Host Game",on_click=CreateHostFunc)
-    #col2.button(label="Join Game",on_click=CreateJoinFunc) #Removed Join Game button 10/17/23
     col2.button(label="Rejoin Game",on_click=CreateRejoinFunc)
     col3.button(label="Quit",on_click=QuitButton)
 
 # Rejoin page
 def BuildRejoin(scene, dbcon):
-    avail_game_ids = []
+    qstring = f"SELECT gameid FROM PlayerGame WHERE PlayerName = '{st.session_state.player}';"
+    dbcon.begin()
+    qResult = dbcon.execute(text(qstring))
+    dbcon.commit()
+    avail_game_ids = qResult.scalars().all()
+    if len(avail_game_ids) != 0:
+        lastGameId = avail_game_ids[-1]
+        noGames = False
+    else:
+        lastGameId = "No games available"
+        noGames = True
     with st.sidebar:
-        gameId = st.text_input(label="Game ID")
+        gameId = st.text_input(label="Game ID", 
+                               max_chars = 100, 
+                               placeholder = f"Last Game ID: {lastGameId}", 
+                               value = lastGameId, # Defaults to latest game
+                               help = "Press the Enter key before submitting Game ID",
+                               disabled = noGames)
         st.button(label="Submit",on_click=CreateRejoinButtonFunc(gameId))
         st.button(label="Back",on_click=CreateMainMenuFunc)
     with st.container():
@@ -148,8 +158,6 @@ def BuildRejoin(scene, dbcon):
         qResult = dbcon.execute(text(qstring))
         dbcon.commit()
         if qResult.rowcount != 0:
-            avail_game_ids = qResult #TEST Karls
-            st.warning(avail_game_ids) #TEST Karls
             st.table(qResult.mappings().all())
             hide_table_row_index = """
                 <style>
@@ -160,16 +168,15 @@ def BuildRejoin(scene, dbcon):
             st.markdown(hide_table_row_index, unsafe_allow_html=True)
         else:
             st.warning("No games active.")
-            st.warning(avail_game_ids) #TEST karls
+
 
 def BuildPlayGame(scene, dbcon):
-    qstring = "Select Turn From Game Where GameID = " + st.session_state.currentGameId + ";"
+    qstring = f"Select Turn From Game Where GameID = {st.session_state.currentGameId} ;"
     dbcon.begin()
     qResult = dbcon.execute(text(qstring))
     dbcon.commit()
     #st.session_state.currentGameTurn = qResult.scalar()
     gameHeader = st.header(st.session_state.player + " - Game ID: " + st.session_state.currentGameId)
-    
     infotab, commandtab, historytab = st.tabs(["Game Board", "Sent Commands", "Battle Log"])
     with st.sidebar:
         st.button(label="Finish Turn",type="primary",on_click=CreateFinishTurnFunc(dbcon, scene))
@@ -191,7 +198,7 @@ def BuildPlayGame(scene, dbcon):
     with historytab:
         st.empty()
     ac.run(UpdatePlayGame(dbcon, infotab, ph, commandtab, historytab))
-    
+
 
 async def UpdatePlayGame(dbcon, infotab, ph, commandtab, historytab):
     while st.session_state.currentGameId != 0:

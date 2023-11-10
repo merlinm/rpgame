@@ -3,3 +3,4 @@ __pycache__/scene_builder.cpython-310.pyc
 *.pyc
 *.pyc
 *.DS_Store
+.DS_Store
