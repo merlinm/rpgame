@@ -59,7 +59,7 @@ def CreateHostButtonFunc(dbcon, scene, mapHeight, mapWidth, numPlants, playerlis
 
 def CreateEnterCommandFunc(dbcon, scene, sourceP, destP, fleetSize, commandtab):
     def EnterCommandButton():
-        qString = f"Select AddCommand('{sourceP}','{destP}','{fleetSize}','{st.session_state.currentGameId}');"
+        qString = f"Select AddCommand('{st.session_state.player}''{sourceP}','{destP}','{fleetSize}','{st.session_state.currentGameId}');"
         dbcon.begin()
         dbcon.execute(text(qString))
         dbcon.commit()
