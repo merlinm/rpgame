@@ -35,8 +35,23 @@
  *    must send at least one ship
  *
  */
+CREATE OR REPLACE FUNCTION AddCommand(
+  _SourceDisplayCharacter TEXT,
+  _DestinationDisplayCharacter TEXT,
+  _NumberOfShips INT,
+  _GameId INT DEFAULT NULL) RETURNS VOID AS
+$$
+  SELECT AddCommand(
+    session_user,
+    _SourceDisplayCharacter,
+    _DestinationDisplayCharacter,
+    _NumberOfShips,
+    _GameId);
+$$ LANGUAGE SQL;
+
 
 CREATE OR REPLACE FUNCTION AddCommand(
+  _Player TEXT,
   _SourceDisplayCharacter TEXT,
   _DestinationDisplayCharacter TEXT,
   _NumberOfShips INT,
@@ -48,8 +63,6 @@ DECLARE
   d Planet;
 
   _AllocatedShips INT;
-
-  _Player TEXT DEFAULT session_user;
 BEGIN
   /* Resolve gameid if not explicitly passed. */
   IF _GameId IS NULL

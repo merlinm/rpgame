@@ -197,17 +197,17 @@ def BuildPlayGame(scene, dbcon):
         st.empty()
     with historytab:
         st.empty()
-    ac.run(UpdatePlayGame(dbcon, infotab, ph, commandtab, historytab))
+    ac.run(UpdatePlayGame(dbcon, infotab, ph, commandtab, historytab, st.session_state))
 
 
-async def UpdatePlayGame(dbcon, infotab, ph, commandtab, historytab):
-    while st.session_state.currentGameId != 0:
-        qstring = "Select Turn From Game Where GameId = " + st.session_state.currentGameId + ";"
+async def UpdatePlayGame(dbcon, infotab, ph, commandtab, historytab, session_state):
+    while session_state.currentGameId != 0:
+        qstring = "Select Turn From Game Where GameId = " + session_state.currentGameId + ";"
         dbcon.begin()
         qResult = dbcon.execute(text(qstring))
         dbcon.commit()
         turnResult = qResult.scalar()
-        turnchanged = turnResult != st.session_state.currentGameTurn
+        turnchanged = turnResult != session_state.currentGameTurn
         if turnchanged:
             st.session_state.currentGameTurn = turnResult
             ph.empty()
@@ -215,7 +215,7 @@ async def UpdatePlayGame(dbcon, infotab, ph, commandtab, historytab):
                 mapCol, planetsCol = st.columns(2)
                 with mapCol:
                     turnHeader = st.subheader("Turn: " + str(turnResult))
-                    qstring = "Select ShowMap('" + st.session_state.player + "', " + st.session_state.currentGameId + ");"
+                    qstring = "Select ShowMap('" + session_state.player + "', " + session_state.currentGameId + ");"
                     dbcon.begin()
                     qResult = dbcon.execute(text(qstring))
                     dbcon.commit()
@@ -224,7 +224,7 @@ async def UpdatePlayGame(dbcon, infotab, ph, commandtab, historytab):
                         mapdisplaystring += r + "\n"
                     st.text(mapdisplaystring)
                 with planetsCol:
-                    qstring = "Select ShowPlanetList('" + st.session_state.player + "', " + st.session_state.currentGameId + ");"
+                    qstring = "Select ShowPlanetList('" + session_state.player + "', " + session_state.currentGameId + ");"
                     dbcon.begin()
                     qResult = dbcon.execute(text(qstring))
                     dbcon.commit()

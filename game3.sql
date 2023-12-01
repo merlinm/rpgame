@@ -815,6 +815,7 @@ BEGIN
 
   _DisplayRow := '';
 
+  /*┌ ┬ ┤├┴└ */
   FOR _column in 1..g.PlayFieldWidth + 1
   LOOP
     IF _column = 1
@@ -854,12 +855,34 @@ BEGIN
 
     _DisplayRow := _DisplayRow || '│' || E'\n';
 
-    FOR _column in 1..g.PlayFieldWidth
-    LOOP
-      _DisplayRow := _DisplayRow || '┼───';
-    END LOOP;    
-
-    _DisplayRow := _DisplayRow || '│';
+    IF _Row < g.PlayFieldHeight
+    THEN
+      FOR _column in 1..g.PlayFieldWidth + 1
+      LOOP
+        IF _column = 1
+        THEN
+          _DisplayRow := _DisplayRow || '├───';
+        ELSEIF _column < g.PlayFieldWidth + 1
+        THEN 
+          _DisplayRow := _DisplayRow || '┼───';
+        ELSE
+          _DisplayRow := _DisplayRow || '┤';
+        END IF;
+      END LOOP;
+    ELSE
+      FOR _column in 1..g.PlayFieldWidth + 1
+      LOOP
+        IF _column = 1
+        THEN
+          _DisplayRow := _DisplayRow || '└───';
+        ELSEIF _column < g.PlayFieldWidth + 1
+        THEN 
+          _DisplayRow := _DisplayRow || '┴───';
+        ELSE
+          _DisplayRow := _DisplayRow || '┘';
+        END IF;
+      END LOOP;    
+    END IF;
 
     _MapDisplay := _MapDisplay || _DisplayRow;
   END LOOP;
