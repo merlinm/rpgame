@@ -37,9 +37,6 @@ def CreateMainMenuFunc():
     if "currentGameID" not in st.session_state:
         st.session_state.currentGameId = 0
         st.session_state.currentGameTurn = 0
-    else:
-        st.session_state.currentGameId = 0
-        st.session_state.currentGameTurn = 0
     st.session_state.scene="mainmenu"
 
 # Initializes the game from Host Game page
@@ -62,7 +59,7 @@ def CreateHostButtonFunc(dbcon, scene, mapHeight, mapWidth, numPlants, playerlis
 
 def CreateEnterCommandFunc(dbcon, scene, sourceP, destP, fleetSize, commandtab):
     def EnterCommandButton():
-        qString = "Select AddCommand('" + sourceP + "','" + destP + "','" + fleetSize + "','" + st.session_state.currentGameID + ");"
+        qString = f"Select AddCommand('{st.session_state.player}','{sourceP}','{destP}','{fleetSize}','{st.session_state.currentGameId}');"
         dbcon.begin()
         dbcon.execute(text(qString))
         dbcon.commit()
@@ -149,7 +146,7 @@ def BuildRejoin(scene, dbcon):
                                value = lastGameId, # Defaults to latest game
                                help = "Press the Enter key before submitting Game ID",
                                disabled = noGames)
-        st.button(label="Submit",on_click=CreateRejoinButtonFunc(gameId))
+        st.button(label="Submit",disabled = noGames,on_click=CreateRejoinButtonFunc(gameId))
         st.button(label="Back",on_click=CreateMainMenuFunc)
     with st.container():
         scene.markdown("# Join Game List - " + st.session_state.player)
@@ -209,7 +206,7 @@ async def UpdatePlayGame(dbcon, infotab, ph, commandtab, historytab, session_sta
         turnResult = qResult.scalar()
         turnchanged = turnResult != session_state.currentGameTurn
         if turnchanged:
-            st.session_state.currentGameTurn = turnResult
+            session_state.currentGameTurn = turnResult
             ph.empty()
             with ph.container():
                 mapCol, planetsCol = st.columns(2)
