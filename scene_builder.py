@@ -14,8 +14,8 @@ def CreateLoginFunc(dbcon, scene, loginName, loginPassword):
     def LoginButton():
         if loginName != "" and loginPassword != "":
             dbcon.begin()
-            qstring = "Select LoginPlayer ('" + loginName + "','" + loginPassword + "');"
-            loginPlayerResult = dbcon.execute(text(qstring))
+            qstring = "Select LoginPlayer (:loginName, :loginPassword);"
+            loginPlayerResult = dbcon.execute(text(qstring), {"loginName": loginName, "loginPassword": loginPassword})
             # loginPlayerResult contains a tuple with true or false flags. 
             # One for successful login and another to identify if a new user was created.
             loginPlayerTest = loginPlayerResult.all()
@@ -34,7 +34,7 @@ def CreateLoginFunc(dbcon, scene, loginName, loginPassword):
     return LoginButton
 
 def CreateMainMenuFunc():
-    if "currentGameID" not in st.session_state:
+    if "currentGameId" not in st.session_state:
         st.session_state.currentGameId = 0
         st.session_state.currentGameTurn = 0
     st.session_state.scene="mainmenu"
@@ -57,21 +57,18 @@ def CreateHostButtonFunc(dbcon, scene, mapHeight, mapWidth, numPlants, playerlis
         st.session_state.scene = "rejoin" 
     return HostButton
 
-def CreateEnterCommandFunc(dbcon, scene, sourceP, destP, fleetSize, commandtab):
-    def EnterCommandButton():
-        qString = f"Select AddCommand('{st.session_state.player}','{sourceP}','{destP}','{fleetSize}','{st.session_state.currentGameId}');"
-        dbcon.begin()
-        dbcon.execute(text(qString))
-        dbcon.commit()
-        st.session_state.scene = "playgame"
-        #with commandtab:
-        #    st.text("Sending " + fleetSize + " ships from planet " + sourceP + " to planet " + destP)
-    return EnterCommandButton
+def CreateEnterCommandFunc(dbcon, sourceP, destP, fleetSize, commandtab):
+    qString = f"Select AddCommand('{st.session_state.player}','{sourceP}','{destP}','{fleetSize}','{st.session_state.currentGameId}');"
+    dbcon.begin()
+    dbcon.execute(text(qString))
+    dbcon.commit()
+    st.session_state.scene = "playgame"
 
 def CreateFinishTurnFunc(dbcon, scene):
     def FinishTurnButton():
-        qString = "Select CommandsDone('" + st.session_state.player + "','" + st.session_state.currentGameID + ");"
-        dbcon.begin()
+        qString = f"Select CommandsDone('{st.session_state.player}','{st.session_state.currentGameId}');"
+        if not dbcon.in_transaction():  # Check if a transaction is already in progress
+            dbcon.begin()  # Start a new transaction if none is in progress
         dbcon.execute(text(qString))
         dbcon.commit()
         #st.session_state.scene = "playgame"
@@ -79,12 +76,11 @@ def CreateFinishTurnFunc(dbcon, scene):
 
 # Rejoin button in main menu
 def CreateRejoinButtonFunc(gameId):
-    def RejoinGameButton():
-        if "currentGameID" not in st.session_state:
-            st.session_state.currentGameId = gameId
-            st.session_state.currentGameTurn = 0
-        st.session_state.scene = "playgame"
-    return RejoinGameButton
+    if "currentGameId" not in st.session_state:
+        st.session_state.currentGameId = gameId
+        st.session_state.currentGameTurn = 0
+    st.session_state.scene = "playgame"
+
 
 def CreateHostFunc():
     st.session_state.scene = "host"
@@ -139,17 +135,20 @@ def BuildRejoin(scene, dbcon):
     else:
         lastGameId = "No games available"
         noGames = True
-    with st.sidebar:
+    with st.form("join_game_id"):
         gameId = st.text_input(label="Game ID", 
-                               max_chars = 100, 
+                               max_chars = 10, 
                                placeholder = f"Last Game ID: {lastGameId}", 
                                value = lastGameId, # Defaults to latest game
-                               help = "Press the Enter key before submitting Game ID",
                                disabled = noGames)
-        st.button(label="Submit",disabled = noGames,on_click=CreateRejoinButtonFunc(gameId))
+        submitted = st.form_submit_button(f"Join Game")
+        if submitted:
+            CreateRejoinButtonFunc(gameId)
+    with st.sidebar:
         st.button(label="Back",on_click=CreateMainMenuFunc)
+        st.button(label="Quit",on_click=QuitButton)
     with st.container():
-        scene.markdown("# Join Game List - " + st.session_state.player)
+        scene.markdown(f"# Avalable games for player {st.session_state.player}")
         qstring = "Select gameid as \"Game ID\", commandsdone as \"Turn Completed\" From PlayerGame Where PlayerName = '" + st.session_state.player + "';"
         dbcon.begin()
         qResult = dbcon.execute(text(qstring))
@@ -171,48 +170,50 @@ def BuildPlayGame(scene, dbcon):
     qstring = f"Select Turn From Game Where GameID = {st.session_state.currentGameId} ;"
     dbcon.begin()
     qResult = dbcon.execute(text(qstring))
+    turnResult = qResult.scalar()
     dbcon.commit()
-    #st.session_state.currentGameTurn = qResult.scalar()
-    gameHeader = st.header(st.session_state.player + " - Game ID: " + st.session_state.currentGameId)
-    infotab, commandtab, historytab = st.tabs(["Game Board", "Sent Commands", "Battle Log"])
+    st.header(f"Player: {st.session_state.player}")
+    st.write(f"Active game ID: {st.session_state.currentGameId}")
+    st.write(f"Current turn: {turnResult}")
+    infotab, commandtab, historytab = st.tabs(["Game Board", "Send Commands", "Battle Log"])
     with st.sidebar:
-        st.button(label="Finish Turn",type="primary",on_click=CreateFinishTurnFunc(dbcon, scene))
-        sourceP = st.text_input(label="Source Planet")
-        destP = st.text_input(label="Destination Planet")
-        fleetSize = st.text_input(label="Fleet Size")
-        st.button(label="Send Ships",on_click=CreateEnterCommandFunc(dbcon, scene, sourceP, destP, fleetSize, commandtab))
-        st.sidebar.button(label="Back",on_click=CreateMainMenuFunc)
+        st.sidebar.button(label="Back", on_click = CreateMainMenuFunc)
+        st.sidebar.button(label="Quit", on_click = QuitButton)
     with infotab:
         ph = st.empty()
         ph.empty()
-        #mapCol, planetsCol = st.columns(2)
-        #with mapCol:
-        #    st.empty()
-        #with planetsCol:
-        #    st.empty()
     with commandtab:
-        st.empty()
+        with st.form("enter_commands"):
+            sourceP = st.text_input(label="Source Planet")
+            destP = st.text_input(label="Destination Planet")
+            fleetSize = st.text_input(label="Fleet Size")
+            submitted = st.form_submit_button("Send Ships")
+            if submitted:
+                CreateEnterCommandFunc(dbcon, sourceP, destP, fleetSize, commandtab)
+        st.button(label="Finish Turn",type="primary",on_click=CreateFinishTurnFunc(dbcon, scene))
     with historytab:
         st.empty()
-    ac.run(UpdatePlayGame(dbcon, infotab, ph, commandtab, historytab, st.session_state))
+    ac.run(UpdatePlayGame(dbcon, infotab, ph, commandtab, historytab, st.session_state.currentGameId, st.session_state.player, st.session_state.currentGameTurn))
 
 
-async def UpdatePlayGame(dbcon, infotab, ph, commandtab, historytab, session_state):
-    while session_state.currentGameId != 0:
-        qstring = "Select Turn From Game Where GameId = " + session_state.currentGameId + ";"
-        dbcon.begin()
+async def UpdatePlayGame(dbcon, infotab, ph, commandtab, historytab, gameId, player, GameTurn):
+    GameTurn = GameTurn
+    while gameId != 0:
+        qstring = f"Select Turn From Game Where GameId = {gameId};"
+        if not dbcon.in_transaction():  # Check if a transaction is already in progress
+            dbcon.begin()  # Start a new transaction if none is in progress
         qResult = dbcon.execute(text(qstring))
         dbcon.commit()
         turnResult = qResult.scalar()
-        turnchanged = turnResult != session_state.currentGameTurn
-        if turnchanged:
-            session_state.currentGameTurn = turnResult
+        turnChanged = turnResult != GameTurn
+        if turnChanged:
+            GameTurn = turnResult
             ph.empty()
             with ph.container():
                 mapCol, planetsCol = st.columns(2)
                 with mapCol:
-                    turnHeader = st.subheader("Turn: " + str(turnResult))
-                    qstring = "Select ShowMap('" + session_state.player + "', " + session_state.currentGameId + ");"
+                    #st.subheader("Turn: " + str(turnResult))
+                    qstring = f"Select ShowMap('{player}', {gameId});"
                     dbcon.begin()
                     qResult = dbcon.execute(text(qstring))
                     dbcon.commit()
@@ -221,7 +222,7 @@ async def UpdatePlayGame(dbcon, infotab, ph, commandtab, historytab, session_sta
                         mapdisplaystring += r + "\n"
                     st.text(mapdisplaystring)
                 with planetsCol:
-                    qstring = "Select ShowPlanetList('" + session_state.player + "', " + session_state.currentGameId + ");"
+                    qstring = f"Select ShowPlanetList('{player}', {gameId});"
                     dbcon.begin()
                     qResult = dbcon.execute(text(qstring))
                     dbcon.commit()
