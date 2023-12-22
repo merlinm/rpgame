@@ -166,7 +166,10 @@ CREATE TABLE Game
   PlayFieldWidth INT NOT NULL,
   PlayFieldHeight INT NOT NULL,
   
-  Turn INT DEFAULT 1
+  Turn INT DEFAULT 1,
+
+  /* are fleets visible? */
+  FogOfWar BOOL NOT NULL DEFAULT true
 );
 
 
@@ -297,8 +300,13 @@ CREATE TABLE Fleet
   
   ShipCount INT,
   TurnsLeft INT,
+
+  SourcePlanetId INT,
   
-  PRIMARY KEY(PlayerName, DestinationPlanetId, Created)
+  /* the player cannot have >1 fleet from the same soure to the same 
+   * destination on the same turn.  
+   */
+  PRIMARY KEY(PlayerName, SourcePlanetId, DestinationPlanetId, Created)
 );
 
 
@@ -1118,6 +1126,25 @@ BEGIN
   FROM GameList(_Player) gl;
 END;
 $$ LANGUAGE PLPGSQL;
+
+
+CREATE OR REPLACE FUNCTION MapPosition(
+  _SourceXPosition INT,
+  _SourceYPosition INT,
+  _DestinationXPosition INT,
+  _DestinationYPosition INT,
+  _TurnsLeft INT,
+  _MapXCellWidth INT, -- 4 w/current map
+  _MapYCellWidth INT, -- 2 w/current map
+  XPosition OUT INT,
+  YPosition OUT INT) RETURNS RECORD AS
+$$
+BEGIN
+      
+END;
+$$ LANGUAGE SQL IMMUTABLE;
+
+
 
 
 

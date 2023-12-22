@@ -216,32 +216,36 @@ $$
 BEGIN
   RAISE NOTICE '%', format('Processing commands for game id %s', _GameId);
 
-  CREATE TEMP TABLE processed ON COMMIT DROP AS
-  WITH q AS
-  (
-    UPDATE Command c SET
-        Processed = now()
-    FROM
-    (
-      SELECT *
-      FROM vw_PendingCommand vc
-      WHERE
-        vc.SourcePlanetId IN (
-          SELECT PlanetId
-          FROM Planet
-          WHERE GameId = _GameId
-        )
-    ) q
-    WHERE q.CommandId = c.CommandId
-    RETURNING c.*
-  ) SELECT * FROM q;
+  CREATE TEMP TABLE processed AS
+    SELECT 
+      PlayerName, 
+      SourcePlanetId, 
+      DestinationPlanetId,
+      SUM(NumberOfShips) AS NumberOfShips,
+      array_agg(CommandId) AS CommandIds
+    FROM vw_PendingCommand vc
+    WHERE
+      vc.SourcePlanetId IN (
+        SELECT PlanetId
+        FROM Planet
+        WHERE GameId = _GameId
+      )
+    GROUP BY
+      PlayerName, 
+      SourcePlanetId, 
+      DestinationPlanetId;
+
+  UPDATE Command c SET Processed = now()
+  FROM processed
+  WHERE c.CommandId = ANY(processed.CommandIds);
 
   INSERT INTO Fleet(
     PlayerName,
     DestinationPlanetId,
     ShipCount,
     TurnsLeft,
-    Created)
+    Created,
+    SourcePlanetId)
   SELECT
     PlayerName,
     DestinationPlanetId,
@@ -251,7 +255,8 @@ BEGIN
       source.YPosition,
       destination.XPosition,
       destination.YPosition),
-    g.Turn
+    g.Turn,
+    SourcePlanetId
   FROM processed p
   JOIN Planet source ON p.SourcePlanetId = source.PlanetId
   JOIN Planet destination ON p.DestinationPlanetId = destination.PlanetId
@@ -260,6 +265,8 @@ BEGIN
   UPDATE Planet SET Ships = Ships - NumberOfShips
   FROM processed
   WHERE Planet.PlanetId = processed.SourcePlanetId;
+
+  DROP TABLE Processed;
 END;
 $$ LANGUAGE PLPGSQL;
 
