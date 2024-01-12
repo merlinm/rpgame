@@ -34,9 +34,10 @@ def CreateLoginFunc(dbcon, scene, loginName, loginPassword):
     return LoginButton
 
 def CreateMainMenuFunc():
-    if "currentGameId" not in st.session_state:
-        st.session_state.currentGameId = 0
-        st.session_state.currentGameTurn = 0
+    # if "currentGameId" not in st.session_state:
+    #     st.session_state.currentGameId = 0
+    #     st.session_state.currentGameTurn = 0
+    st.session_state.currentGameId = 0
     st.session_state.scene="mainmenu"
 
 # Initializes the game from Host Game page
@@ -79,6 +80,7 @@ def CreateRejoinButtonFunc(gameId):
     if "currentGameId" not in st.session_state:
         st.session_state.currentGameId = gameId
         st.session_state.currentGameTurn = 0
+    st.session_state.currentGameId = gameId
     st.session_state.scene = "playgame"
 
 
@@ -120,7 +122,7 @@ def BuildHost(scene, dbcon):
             submitted = st.form_submit_button("Start Game")
             if submitted:
                 CreateHostButtonFunc(dbcon, scene, mapHeight, mapWidth, numPlants, [player1, player2, player3, player4])
-        st.session_state.scene = "rejoin"
+                st.session_state.scene = "rejoin"
 
 def BuildMainMenu(scene, dbcon):
     col1, col2, col3 = scene.columns(3)
@@ -130,8 +132,8 @@ def BuildMainMenu(scene, dbcon):
 
 # Rejoin page
 def BuildRejoin(scene, dbcon):
-    qstring = f"SELECT gameid FROM PlayerGame WHERE PlayerName = '{st.session_state.player}';"
     dbcon.begin()
+    qstring = f"SELECT gameid FROM PlayerGame WHERE PlayerName = '{st.session_state.player}';"
     qResult = dbcon.execute(text(qstring))
     dbcon.commit()
     avail_game_ids = qResult.scalars().all()
@@ -141,6 +143,7 @@ def BuildRejoin(scene, dbcon):
     else:
         lastGameId = "No games available"
         noGames = True
+
     with st.form("join_game_id"):
         gameId = st.text_input(label="Game ID", 
                                max_chars = 10, 
@@ -150,6 +153,7 @@ def BuildRejoin(scene, dbcon):
         submitted = st.form_submit_button(f"Join Game")
         if submitted:
             CreateRejoinButtonFunc(gameId)
+
     with st.sidebar:
         st.button(label="Back",on_click=CreateMainMenuFunc)
         st.button(label="Quit",on_click=QuitButton)
