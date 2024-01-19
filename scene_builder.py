@@ -188,6 +188,7 @@ def BuildPlayGame(scene, dbcon):
             submitted = st.form_submit_button("Send Ships")
             if submitted:
                 CreateEnterCommandFunc(dbcon, sourceP, destP, fleetSize, commandtab)
+                submitted = False
         st.button(label="Finish Turn",type="primary",on_click=CreateFinishTurnFunc(dbcon, scene))
         st.sidebar.button(label="Back", on_click = CreateMainMenuFunc)
         st.sidebar.button(label="Quit", on_click = QuitButton)
