@@ -58,9 +58,10 @@ def CreateHostButtonFunc(dbcon, scene, mapHeight, mapWidth, numPlants, playerlis
          
     return HostButton
 
-def CreateEnterCommandFunc(dbcon, sourceP, destP, fleetSize, commandtab):
+def CreateEnterCommandFunc(dbcon, sourceP, destP, fleetSize):
     qString = f"Select AddCommand('{st.session_state.player}','{sourceP}','{destP}','{fleetSize}','{st.session_state.currentGameId}');"
-    dbcon.begin()
+    if not dbcon.in_transaction():  # Check if a transaction is already in progress
+        dbcon.begin()  # Start a new transaction if none is in progress
     dbcon.execute(text(qString))
     dbcon.commit()
     st.session_state.scene = "playgame"
@@ -72,7 +73,7 @@ def CreateFinishTurnFunc(dbcon, scene):
             dbcon.begin()  # Start a new transaction if none is in progress
         dbcon.execute(text(qString))
         dbcon.commit()
-        #st.session_state.scene = "playgame"
+        st.session_state.scene = "playgame"
     return FinishTurnButton
 
 # Rejoin button in main menu
@@ -181,14 +182,15 @@ def BuildPlayGame(scene, dbcon):
     st.sidebar.write(f"Game ID: {st.session_state.currentGameId}")
     infotab, commandtab, historytab = st.tabs(["Game Board", "Send Commands", "Battle Log"])
     with st.sidebar:
-        with st.form("enter_commands"):
+        with st.form("enter_commands", clear_on_submit=True):
+            submitted = False
             sourceP = st.text_input(label="Source Planet")
             destP = st.text_input(label="Destination Planet")
             fleetSize = st.text_input(label="Fleet Size")
             submitted = st.form_submit_button("Send Ships")
-            if submitted:
-                CreateEnterCommandFunc(dbcon, sourceP, destP, fleetSize, commandtab)
-                submitted = False
+        if submitted:
+            CreateEnterCommandFunc(dbcon, sourceP, destP, fleetSize)
+            print("Sent command")
         st.button(label="Finish Turn",type="primary",on_click=CreateFinishTurnFunc(dbcon, scene))
         st.sidebar.button(label="Back", on_click = CreateMainMenuFunc)
         st.sidebar.button(label="Quit", on_click = QuitButton)
