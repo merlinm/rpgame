@@ -1,13 +1,52 @@
 import streamlit as st
-import pandas as pd
+#import pandas as pd
 import asyncio as ac
-from sqlalchemy.engine import URL, create_engine
-from sqlalchemy.orm import Session
-from sqlalchemy.orm.exc import NoResultFound, MultipleResultsFound
+#from sqlalchemy.engine import URL, create_engine
+#from sqlalchemy.orm import Session
+#from sqlalchemy.orm.exc import NoResultFound, MultipleResultsFound
 from sqlalchemy.sql import text
-from sqlalchemy.dialects.postgresql import JSONB
-import sys
+#from sqlalchemy.dialects.postgresql import JSONB
 #from validations import IsValid
+
+
+def CreateHostFunc():
+    st.session_state.scene = "host"
+
+def CreateRejoinFunc():
+    st.session_state.scene = "rejoin"
+
+def QuitButton():
+    st.session_state.scene = "login"
+
+def InitialBuild():
+    if "scene" not in st.session_state:
+        st.session_state.scene = "login"
+
+def BuildQuit(scene):
+    st.text("Thank you for playing! You can now close the tab.")
+
+def BuildLogin(scene, dbcon):
+    with scene.container():
+        st.markdown("# RP Game")
+        loginName = st.text_input(label="Login Name")
+        loginPassword = st.text_input(label="Password", type="password")
+        st.button(label="Login",on_click=CreateLoginFunc(dbcon, scene, loginName, loginPassword))
+
+def SceneChanger(scene, dbcon, newScene:str):
+    scene.empty()
+    match newScene:
+        case "login":
+            BuildLogin(scene, dbcon)
+        case "mainmenu":
+            BuildMainMenu(scene, dbcon)
+        case "host":
+            BuildHost(scene, dbcon)
+        case "rejoin":
+            BuildRejoin(scene, dbcon)
+        case "playgame":
+            BuildPlayGame(scene, dbcon)
+        case "quit":
+            BuildLogin(scene, dbcon)
 
 # Login page
 def CreateLoginFunc(dbcon, scene, loginName, loginPassword):
@@ -38,43 +77,25 @@ def CreateMainMenuFunc():
     #     st.session_state.currentGameId = 0
     #     st.session_state.currentGameTurn = 0
     st.session_state.currentGameId = 0
+    st.session_state.currentGameTurn = 0
     st.session_state.scene="mainmenu"
 
 # Initializes the game from Host Game page
 def CreateHostButtonFunc(dbcon, scene, mapHeight, mapWidth, numPlants, playerlist):
-    def HostButton():
-        pString = "["
-        for p in playerlist:
-            if p == "":
-                playerlist.remove(p)
-            elif playerlist.index(p) == len(playerlist) - 1:
-                pString += p + "]"
-            else:
-                pString += p + ","
-        dbcon.begin()
-        qstring = f"Call InitializeGame(array{playerlist}, {numPlants}, {mapWidth}, {mapHeight});"
-        dbcon.execute(text(qstring))
-        dbcon.commit()
-         
-    return HostButton
-
-def CreateEnterCommandFunc(dbcon, sourceP, destP, fleetSize):
-    qString = f"Select AddCommand('{st.session_state.player}','{sourceP}','{destP}','{fleetSize}','{st.session_state.currentGameId}');"
-    if not dbcon.in_transaction():  # Check if a transaction is already in progress
-        dbcon.begin()  # Start a new transaction if none is in progress
-    dbcon.execute(text(qString))
+    # def HostButton():
+    pString = "["
+    for p in playerlist:
+        if p == "":
+            playerlist.remove(p)
+        elif playerlist.index(p) == len(playerlist) - 1:
+            pString += p + "]"
+        else:
+            pString += p + ","
+    dbcon.begin()
+    qstring = f"Call InitializeGame(array{playerlist}, {numPlants}, {mapWidth}, {mapHeight});"
+    dbcon.execute(text(qstring))
     dbcon.commit()
-    st.session_state.scene = "playgame"
-
-def CreateFinishTurnFunc(dbcon, scene):
-    def FinishTurnButton():
-        qString = f"Select CommandsDone('{st.session_state.player}','{st.session_state.currentGameId}');"
-        if not dbcon.in_transaction():  # Check if a transaction is already in progress
-            dbcon.begin()  # Start a new transaction if none is in progress
-        dbcon.execute(text(qString))
-        dbcon.commit()
-        st.session_state.scene = "playgame"
-    return FinishTurnButton
+    # return HostButton
 
 # Rejoin button in main menu
 def CreateRejoinButtonFunc(gameId):
@@ -83,27 +104,6 @@ def CreateRejoinButtonFunc(gameId):
         st.session_state.currentGameTurn = 0
     st.session_state.currentGameId = gameId
     st.session_state.scene = "playgame"
-
-
-def CreateHostFunc():
-    st.session_state.scene = "host"
-
-def CreateRejoinFunc():
-    st.session_state.scene = "rejoin"
-
-def QuitButton():
-    st.session_state.scene = "login"
-
-def InitialBuild():
-    if "scene" not in st.session_state:
-        st.session_state.scene = "login"
-
-def BuildLogin(scene, dbcon):
-    with scene.container():
-        st.markdown("# RP Game")
-        loginName = st.text_input(label="Login Name")
-        loginPassword = st.text_input(label="Password", type="password")
-        st.button(label="Login",on_click=CreateLoginFunc(dbcon, scene, loginName, loginPassword))
 
 # Host game page
 def BuildHost(scene, dbcon):
@@ -176,22 +176,28 @@ def BuildRejoin(scene, dbcon):
         else:
             st.warning("No games active.")
 
-
 def BuildPlayGame(scene, dbcon):
     st.sidebar.header(f"Player: {st.session_state.player}")
     st.sidebar.write(f"Game ID: {st.session_state.currentGameId}")
     infotab, commandtab, historytab = st.tabs(["Game Board", "Send Commands", "Battle Log"])
+    submitted = False
     with st.sidebar:
         with st.form("enter_commands", clear_on_submit=True):
-            submitted = False
             sourceP = st.text_input(label="Source Planet")
             destP = st.text_input(label="Destination Planet")
             fleetSize = st.text_input(label="Fleet Size")
             submitted = st.form_submit_button("Send Ships")
-        if submitted:
-            CreateEnterCommandFunc(dbcon, sourceP, destP, fleetSize)
-            print("Sent command")
-        st.button(label="Finish Turn",type="primary",on_click=CreateFinishTurnFunc(dbcon, scene))
+            if submitted:
+                qString = f"Select AddCommand('{st.session_state.player}','{sourceP}','{destP}','{fleetSize}','{st.session_state.currentGameId}');"
+                with dbcon.begin():  # This will automatically commit or rollback the transaction
+                    dbcon.execute(text(qString))
+                submitted = False
+                st.session_state.scene = "playgame"
+        if st.button(label="Finish Turn",type="primary"):
+            qString = f"Select CommandsDone('{st.session_state.player}','{st.session_state.currentGameId}');"
+            with dbcon.begin():  # This will automatically commit or rollback the transaction
+                dbcon.execute(text(qString))
+            st.session_state.scene = "playgame"
         st.sidebar.button(label="Back", on_click = CreateMainMenuFunc)
         st.sidebar.button(label="Quit", on_click = QuitButton)
     with infotab:
@@ -205,13 +211,10 @@ def BuildPlayGame(scene, dbcon):
 
 
 async def UpdatePlayGame(dbcon, infotab, ph, commandtab, historytab, gameId, player, GameTurn):
-    #st.write(f"Current turn: {turnResult}")
     while gameId != 0:
         qstring = f"Select Turn From Game Where GameId = {gameId};"
-        if not dbcon.in_transaction():  # Check if a transaction is already in progress
-            dbcon.begin()  # Start a new transaction if none is in progress
-        qResult = dbcon.execute(text(qstring))
-        dbcon.commit()
+        with dbcon.begin():  # This will automatically commit or rollback the transaction
+            qResult = dbcon.execute(text(qstring))
         turnResult = qResult.scalar()
         turnChanged = turnResult != GameTurn
         if turnChanged:
@@ -222,18 +225,16 @@ async def UpdatePlayGame(dbcon, infotab, ph, commandtab, historytab, gameId, pla
                 with mapCol:
                     st.write(f"Turn: {str(turnResult)}")
                     qstring = f"Select ShowMap('{player}', {gameId});"
-                    dbcon.begin()
-                    qResult = dbcon.execute(text(qstring))
-                    dbcon.commit()
+                    with dbcon.begin():  # This will automatically commit or rollback the transaction
+                        qResult = dbcon.execute(text(qstring))
                     mapdisplaystring = ""
                     for r in qResult.scalars():
                         mapdisplaystring += r + "\n"
                     st.text(mapdisplaystring)
                 with planetsCol:
                     qstring = f"Select ShowPlanetList('{player}', {gameId});"
-                    dbcon.begin()
-                    qResult = dbcon.execute(text(qstring))
-                    dbcon.commit()
+                    with dbcon.begin():  # This will automatically commit or rollback the transaction
+                        qResult = dbcon.execute(text(qstring))
                     restable = [row._asdict() for row in qResult.all()]
                     parsetable = restable[0]["showplanetlist"]
                     hide_table_row_index = """
@@ -252,23 +253,3 @@ async def UpdatePlayGame(dbcon, infotab, ph, commandtab, historytab, gameId, pla
                 st.empty()
         await ac.sleep(1)
 
-
-def BuildQuit(scene):
-    st.text("Thank you for playing! You can now close the tab.")
-
-
-def SceneChanger(scene, dbcon, newScene:str):
-    scene.empty()
-    match newScene:
-        case "login":
-            BuildLogin(scene, dbcon)
-        case "mainmenu":
-            BuildMainMenu(scene, dbcon)
-        case "host":
-            BuildHost(scene, dbcon)
-        case "rejoin":
-            BuildRejoin(scene, dbcon)
-        case "playgame":
-            BuildPlayGame(scene, dbcon)
-        case "quit":
-            BuildQuit(scene)
