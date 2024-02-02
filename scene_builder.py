@@ -144,7 +144,6 @@ def BuildRejoin(scene, dbcon):
     else:
         lastGameId = "No games available"
         noGames = True
-
     with st.form("join_game_id"):
         gameId = st.text_input(label="Game ID", 
                                max_chars = 10, 
@@ -154,7 +153,6 @@ def BuildRejoin(scene, dbcon):
         submitted = st.form_submit_button(f"Join Game")
         if submitted:
             CreateRejoinButtonFunc(gameId)
-
     with st.sidebar:
         st.button(label="Back",on_click=CreateMainMenuFunc)
         st.button(label="Quit",on_click=QuitButton)
@@ -180,7 +178,6 @@ def BuildPlayGame(scene, dbcon):
     st.sidebar.header(f"Player: {st.session_state.player}")
     st.sidebar.write(f"Game ID: {st.session_state.currentGameId}")
     infotab, commandtab, historytab = st.tabs(["Game Board", "Send Commands", "Battle Log"])
-    submitted = False
     with st.sidebar:
         with st.form("enter_commands", clear_on_submit=True):
             sourceP = st.text_input(label="Source Planet")
@@ -188,17 +185,16 @@ def BuildPlayGame(scene, dbcon):
             fleetSize = st.text_input(label="Fleet Size")
             submitted = st.form_submit_button("Send Ships")
             if submitted:
-                qString = f"Select AddCommand('{st.session_state.player}','{sourceP}','{destP}','{fleetSize}','{st.session_state.currentGameId}');"
+                print("SUBMITTED COMMANDS")
                 with dbcon.begin():  # This will automatically commit or rollback the transaction
+                    qString = f"Select AddCommand('{st.session_state.player}','{sourceP}','{destP}','{fleetSize}','{st.session_state.currentGameId}');"
                     dbcon.execute(text(qString))
-                submitted = False
-                st.session_state.scene = "playgame"
-        if st.button(label="Finish Turn",type="primary"):
-            qString = f"Select CommandsDone('{st.session_state.player}','{st.session_state.currentGameId}');"
+                st.experimental_rerun()
+        if st.sidebar.button(label="Finish Turn",type="primary"):
             with dbcon.begin():  # This will automatically commit or rollback the transaction
+                qString = f"Select CommandsDone('{st.session_state.player}','{st.session_state.currentGameId}');"
                 dbcon.execute(text(qString))
-            st.session_state.scene = "playgame"
-        st.sidebar.button(label="Back", on_click = CreateMainMenuFunc)
+        st.sidebar.button(label="Back", on_click = CreateRejoinFunc)
         st.sidebar.button(label="Quit", on_click = QuitButton)
     with infotab:
         ph = st.empty()
@@ -207,49 +203,54 @@ def BuildPlayGame(scene, dbcon):
         st.empty()
     with historytab:
         st.empty()
-    ac.run(UpdatePlayGame(dbcon, infotab, ph, commandtab, historytab, st.session_state.currentGameId, st.session_state.player, st.session_state.currentGameTurn))
+    ac.run(UpdatePlayGame(dbcon, infotab, ph, commandtab, historytab, st.session_state.currentGameId, st.session_state.player))#, st.session_state.currentGameTurn))
 
 
-async def UpdatePlayGame(dbcon, infotab, ph, commandtab, historytab, gameId, player, GameTurn):
+async def UpdatePlayGame(dbcon, infotab, ph, commandtab, historytab, gameId, player):#, GameTurn):
+    GameTurn = st.session_state.currentGameTurn
     while gameId != 0:
         qstring = f"Select Turn From Game Where GameId = {gameId};"
         with dbcon.begin():  # This will automatically commit or rollback the transaction
             qResult = dbcon.execute(text(qstring))
         turnResult = qResult.scalar()
-        turnChanged = turnResult != GameTurn
+        st.session_state.currentGameTurn = turnResult
+        print("Game ID: ", gameId, "turnResult: ", turnResult, "GameTurn: ", turnResult)
+        turnChanged = GameTurn != turnResult
+        print("Turn Changed: ", turnChanged)
         if turnChanged:
             GameTurn = turnResult
+            print("IF LOOP", "turnResult: ", turnResult, "GameTurn: ", GameTurn)
             ph.empty()
-            with ph.container():
-                mapCol, planetsCol = st.columns(2)
-                with mapCol:
-                    st.write(f"Turn: {str(turnResult)}")
-                    qstring = f"Select ShowMap('{player}', {gameId});"
-                    with dbcon.begin():  # This will automatically commit or rollback the transaction
-                        qResult = dbcon.execute(text(qstring))
-                    mapdisplaystring = ""
-                    for r in qResult.scalars():
-                        mapdisplaystring += r + "\n"
-                    st.text(mapdisplaystring)
-                with planetsCol:
-                    qstring = f"Select ShowPlanetList('{player}', {gameId});"
-                    with dbcon.begin():  # This will automatically commit or rollback the transaction
-                        qResult = dbcon.execute(text(qstring))
-                    restable = [row._asdict() for row in qResult.all()]
-                    parsetable = restable[0]["showplanetlist"]
-                    hide_table_row_index = """
-                        <style>
-                        thead tr th:first-child {display:none}
-                        tbody th {display:none}
-                        </style>
-                        """
-                    st.markdown(hide_table_row_index, unsafe_allow_html=True)
-                    st.table(parsetable)
-            with commandtab:
-                st.empty()
-            with historytab:
-                st.empty()
-            with infotab:
-                st.empty()
-        await ac.sleep(1)
+        with ph.container():
+            mapCol, planetsCol = st.columns(2)
+            with mapCol:
+                st.write(f"Turn: {str(turnResult)}")
+                qstring = f"Select ShowMap('{player}', {gameId});"
+                with dbcon.begin():  # This will automatically commit or rollback the transaction
+                    qResult = dbcon.execute(text(qstring))
+                mapdisplaystring = ""
+                for r in qResult.scalars():
+                    mapdisplaystring += r + "\n"
+                st.text(mapdisplaystring)
+            with planetsCol:
+                qstring = f"Select ShowPlanetList('{player}', {gameId});"
+                with dbcon.begin():  # This will automatically commit or rollback the transaction
+                    qResult = dbcon.execute(text(qstring))
+                restable = [row._asdict() for row in qResult.all()]
+                parsetable = restable[0]["showplanetlist"]
+                hide_table_row_index = """
+                    <style>
+                    thead tr th:first-child {display:none}
+                    tbody th {display:none}
+                    </style>
+                    """
+                st.markdown(hide_table_row_index, unsafe_allow_html=True)
+                st.table(parsetable)
+        with commandtab:
+            st.empty()
+        with historytab:
+            st.empty()
+        with infotab:
+            st.empty()
+    await ac.sleep(3)
 
