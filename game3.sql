@@ -149,6 +149,13 @@
  * PlayerList()
  */
 
+CREATE TYPE FogOfWarMode_t AS ENUM
+(
+  'ALL_HIDDEN',
+  'OPPONENTS_HIDDEN',
+  'ALL_VISIBLE'
+);
+
 
 /* 
  * Represents an instance of a game, 
@@ -168,9 +175,11 @@ CREATE TABLE Game
   
   Turn INT DEFAULT 1,
 
-  /* are fleets visible? */
-  FogOfWar BOOL NOT NULL DEFAULT true
+  /* Controls if/how players can see fleets in transit */
+  FogOfWarMode FogOfWarMode_t NOT NULL DEFAULT 'ALL_HIDDEN'
 );
+
+
 
 
 CREATE TABLE Player
@@ -953,7 +962,9 @@ CREATE TABLE FleetArrival
   SourcePlanetId INT,  /* XXX unused */
   DestinationPlanetId INT,
 
-  SentShipCount INT
+  SentShipCount INT,
+
+  ReceiverShipCount INT DEFAULT 0
 
   /*
    * option 1: IsSender is captured, with two records, one for attacker ,
@@ -971,57 +982,55 @@ CREATE OR REPLACE FUNCTION FormatFleetArrival(
   b FleetArrival,
   _IsSender BOOL) RETURNS TEXT AS
 $$
+DECLARE
+  _SourcePlanet TEXT;
+  _DestinationPlanet TEXT;
 BEGIN
+  SELECT INTO _SourcePlanet DisplayCharacter
+  FROM Planet
+  WHERE PlanetId = b.SourcePlanetId;
+
+  SELECT INTO _DestinationPlanet DisplayCharacter
+  FROM Planet
+  WHERE PlanetId = b.DestinationPlanetId;
+
+  _SourcePlanet = COALESCE(_SourcePlanet, 'unknown');
+  _DestinationPlanet = COALESCE(_DestinationPlanet, 'unknown');
+
   CASE
-    WHEN NOT b.WasBattle AND _IsSender THEN
+    WHEN NOT b.WasBattle THEN
       RETURN format(
-        'fleet with %s ships sent from player %s has arrived without battle'
-        ' at planet %s.',
+        'Fleet with %s ships sent by player %s from'
+        ' planet %s to planet %s owned by %s.'
+        '  There was no battle. %s ships are now stationed at the planet.',
         b.SentShipCount,
         b.SendingPlayerName,
-        (
-            SELECT DisplayCharacter
-            FROM Planet
-            WHERE PlanetId = b.DestinationPlanetId
-        ));
+        _SourcePlanet,
+        _DestinationPlanet,
+        b.ReceivingPlayerName,
+        b.SentShipCount + b.ReceiverShipCount);
 
-    WHEN b.WasBattle AND _IsSender THEN
+    WHEN b.WasBattle THEN
       RETURN format(
-        'fleet with %s ships sent from player %s has arrived with battle'
-        ' at planet %s and is victorious with %s ships surviving',
+          'Fleet with %s ships sent by player %s from'
+          ' planet %s to planet %s owned by %s. '
+          ' You have %s the battle!  %s ships survive and remain on the planet',
         b.SentShipCount,
         b.SendingPlayerName,
-        (
-            SELECT DisplayCharacter
-            FROM Planet
-            WHERE PlanetId = b.DestinationPlanetId
-        ),
-        b.SenderSurvivingShipCount);
-
-    ELSE
-
+        _SourcePlanet,
+        _DestinationPlanet,
+        b.ReceivingPlayerName, 
+        CASE 
+          WHEN _IsSender AND b.DidPlanetChangedHands THEN 'won'
+          WHEN b.DidPlanetChangedHands THEN 'lost'
+          WHEN _IsSender THEN 'lost'
+          ELSE 'won'
+        END,
+        CASE WHEN _IsSender 
+          THEN b.SenderSurvivingShipCount 
+          ELSE b.ReceiverSurvivingShipCount
+        END);
   END CASE;
-
-
-  IF NOT b.WasBattle
-  THEN
-
-  ELSEIF b.WasBattle
-  THEN
-    RETURN format(
-      'fleet with %s ships sent from player %s has arrived without battle'
-      ' at planet %s. %s of your ships survived.%s',
-      b.SentShipCount,
-      b.SendingPlayerName,
-      (
-          SELECT DisplayCharacter
-          FROM Planet
-          WHERE PlanetId = b.DestinationPlanetId
-      ),
-      b.ReceiverSurvivingShipCount,
-      CASE WHEN b.DidPlanetChangedHands THEN ' Your planet is lost!!' END);
-  END IF;
-
 END;
 $$ LANGUAGE PLPGSQL;
 
@@ -1127,7 +1136,104 @@ BEGIN
 END;
 $$ LANGUAGE PLPGSQL;
 
+-- 
+SELECT MapPosition(61);
 
+/* perform lookups for lower level map position function */
+CREATE OR REPLACE FUNCTION MapPosition(
+  _FleetId INT,
+  _MapXCellWidth INT DEFAULT 4,
+  _MapYCellWidth INT DEFAULT 2,
+  XPosition OUT INT,
+  YPosition OUT INT) RETURNS RECORD AS
+$$
+  SELECT 
+    m.*
+  FROM Fleet f
+  JOIN Planet source ON f.SourcePlanetId = source.PlanetId
+  JOIN Planet destination ON f.DestinationPlanetId = destination.PlanetId
+  CROSS JOIN LATERAL 
+    MapPosition(
+      source.XPosition,
+      source.YPosition,
+      destination.XPosition,
+      destination.YPosition,
+      f.TurnsLeft,
+      _MapXCellWidth,
+      _MapYCellWidth) m
+  WHERE FleetId = _FleetId;
+$$ LANGUAGE SQL;
+
+/* Calcultes the position of the fleet on the map so that it can be displayed */
+CREATE OR REPLACE FUNCTION MapPositionAll(
+  _FleetId INT,
+  _MapXCellWidth INT DEFAULT 4,
+  _MapYCellWidth INT DEFAULT 2,
+  Turn OUT INT,
+  XPosition OUT INT,
+  YPosition OUT INT) RETURNS SETOF RECORD AS
+$$
+DECLARE
+  _Turn INT;
+  _Distance INT;
+  r RECORD;
+BEGIN
+  SELECT INTO r
+    sp.XPosition AS SourceX,
+    sp.YPosition AS SourceY,
+    dp.XPosition AS DestX,
+    dp.YPosition AS DestY
+  FROM Fleet f
+  JOIN Planet sp ON f.SourcePlanetId = sp.PlanetId
+  JOIN Planet dp ON f.DestinationPlanetId = dp.PlanetId
+  WHERE FleetId = _FleetId;  
+
+  _Distance := Distance(
+    r.SourceX,
+    r.SourceY,
+    r.DestX,
+    r.DestY);
+
+  FOR _Turn IN 0.._Distance
+  LOOP
+    RETURN QUERY 
+    SELECT 
+      _Turn, 
+      m.* 
+    FROM 
+      MapPosition(
+        r.SourceX,
+        r.SourceY,
+        r.DestX,
+        r.DestY,
+        _Distance - _Turn,
+        _MapXCellWidth,
+        _MapYCellWidth) m;
+  END LOOP;
+END;
+$$ LANGUAGE PLPGSQL;
+
+/* Calcultes the position of the fleet on the map so that it can be displayed */
+CREATE OR REPLACE FUNCTION MapPosition(
+  _FleetId INT,
+  _MapXCellWidth INT,
+  _MapYCellWidth INT,
+  XPosition OUT INT,
+  YPosition OUT INT) RETURNS RECORD AS
+$$
+  SELECT
+    MapPosition(
+      sp.XPosition,
+      sp.YPosition,
+      dp.XPosition,
+      dp.YPosition,
+      f.TurnsLeft)
+  FROM Fleet f
+  JOIN Planet sp ON f.SourcePlanetId = sp.PlanetId
+  JOIN Planet dp ON f.SourcePlanetId = dp.PlanetId;
+$$ LANGUAGE SQL;
+
+SELECT MapPosition(1,2,3...)  -> x:15 y:9
 CREATE OR REPLACE FUNCTION MapPosition(
   _SourceXPosition INT,
   _SourceYPosition INT,
@@ -1139,10 +1245,50 @@ CREATE OR REPLACE FUNCTION MapPosition(
   XPosition OUT INT,
   YPosition OUT INT) RETURNS RECORD AS
 $$
+DECLARE
+  _LengthRatio FLOAT8;
+  _XWidth FLOAT8;
+  _YWidth FLOAT8;
+  _Distance INT;
+  _TravelledTurns INT;
+  _Debug BOOL DEFAULT true;
 BEGIN
-      
-END;
-$$ LANGUAGE SQL IMMUTABLE;
+  /* calculate the curennt x,y position */
+  _Distance := Distance(
+    _SourceXPosition,
+    _SourceYPosition,
+    _DestinationXPosition,
+    _DestinationYPosition);
+  
+  _TravelledTurns := _Distance - _TurnsLeft;
+
+  _LengthRatio := _TravelledTurns / _Distance::FLOAT8;
+
+  _XWidth := (_DestinationXPosition - _SourceXPosition)
+    * _LengthRatio;
+
+  _YWidth := (_DestinationYPosition - _SourceYPosition)
+    * _LengthRatio;
+
+  XPosition := _SourceXPosition + _XWidth;
+
+  YPosition := _SourceYPosition + _YWidth;
+
+  IF _Debug
+  THEN
+    RAISE NOTICE 'Source X: % Y: % Dest X: % Y: % dist % tturns % XW: % YW: % Ratio %',
+      _SourceXPosition,
+      _SourceYPosition,
+      _DestinationXPosition,
+      _DestinationYPosition,
+      _Distance,
+      _TravelledTurns,
+      _XWidth,
+      _YWidth,
+      _LengthRatio;
+  END IF;
+END; 
+$$ LANGUAGE PLPGSQL IMMUTABLE;
 
 
 

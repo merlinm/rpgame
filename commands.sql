@@ -371,6 +371,7 @@ DECLARE
   _PlanetChangedHands BOOL;
   _FleetDestroyed BOOL;
   g Game;
+  _ReceiverShipCount INT;
 
   _Debug BOOL DEFAULT true;
 BEGIN
@@ -408,9 +409,12 @@ BEGIN
     /* check if planet is owned by fleet owner and give battle if it isn't */
     SELECT INTO
       _NeedBattle,
-      _RecevingPlayer
+      _RecevingPlayer,
+      _ReceiverShipCount
+
       COALESCE(p.Owner, '') != f.PlayerName,
-      p.Owner
+      p.Owner,
+      p.Ships
     FROM Planet p
     WHERE
       f.DestinationPlanetId = p.PlanetId;
@@ -463,20 +467,20 @@ BEGIN
 
       _PlanetChangedHands,
 
-      NULL, /* fleet does not capture source planet id at present */
+      f.SourcePlanetId, 
       f.DestinationPlanetId,
-      f.ShipCount);
+      f.ShipCount,
+      _ReceiverShipCount);
 
   END LOOP;
 END;
 $$ LANGUAGE PLPGSQL;
 
 
-CREATE OR REPLACE FUNCTION Battles() RETURNS SETOF TEXT AS
+CREATE OR REPLACE FUNCTION Battles(
+  _GameId BIGINT,
+  _Player TEXT) RETURNS SETOF TEXT AS
 $$
-DECLARE
-  _Player TEXT DEFAULT session_user;
-  _GameId INT DEFAULT ResolveGameId(_Player);
 BEGIN
   /* XXX: Resolve player, game and turn */
   RETURN QUERY SELECT FormatFleetArrival(fa, _Player IS NOT DISTINCT FROM SendingPlayerName)
@@ -489,7 +493,6 @@ BEGIN
       OR ReceivingPlayerName IS NOT DISTINCT FROM _Player
     )
     ORDER BY Turn DESC;
-
 END;
 $$ LANGUAGE PLPGSQL SECURITY DEFINER;
 
@@ -577,10 +580,6 @@ BEGIN
   PERFORM MoveFleets(_GameId);
 
   PERFORM ProcessFleetArrivals(_GameId);
-
-  PERFORM DisplayFleetArrivals(
-    _Player,
-    _GameId);
 
   /* Everything is done! advance the turn */
   UPDATE Game SET Turn = Turn + 1 WHERE GameId = _GameId;
