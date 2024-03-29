@@ -2,7 +2,7 @@ import streamlit as st
 from sqlalchemy.engine import URL, create_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import text
-import sys
+#import sys
 import scene_builder
 
 def main():
