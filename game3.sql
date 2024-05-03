@@ -38,7 +38,19 @@
  *      security                                                    graphics
  *   PI PLANNING                                                      sql class
  *   launch projects
+
  *
+ *                               Code longevity
+ *       ---           UI           Low   (months)
+ *     --------       App          Medium (years)    C->C++->Java->Python......
+ *    -----------   Database        High (decades)  COBOL->SQL->Cloud SQL(SQL)
+ *
+ *
+ *     Collect User Input:  Browser/Python
+ *     Rendering: Database->Python (Django)
+ *     Game State: Database
+ *     Authorization (Data Visibilty): Database
+ *     Player to Player Communication: Python
  */
 
 
@@ -79,8 +91,7 @@
  * alliances?
  * fleet upgrades
  * fog of war?
- * fleet to fleet battles
- * UI
+ * fleet to fleet battles * UI
  * Move game processing out of player routines (CommandsDone)
  *
  * Show playfield needs several changes
@@ -151,8 +162,13 @@
 
 CREATE TYPE FogOfWarMode_t AS ENUM
 (
+  /* all fleets are hidden from everybody */
   'ALL_HIDDEN',
+
+  /* you can see your fleets, but fleets of other players */
   'OPPONENTS_HIDDEN',
+
+  /* everybody's feet is visible at all times */
   'ALL_VISIBLE'
 );
 
@@ -634,24 +650,26 @@ $$ LANGUAGE PLPGSQL;
 
 
   -- view
-  CREATE OR REPLACE VIEW vw_PlanetAllocated AS
-  SELECT
-    p.*,
-    COALESCE(SUM(c.NumberOfShips), 0) AS AllocatedShips,
-    Owner || CASE
-      WHEN CommandsDone IS NOT NULL THEN '*'
-      ELSE ''
-    END AS OwnerDone
-  FROM Planet p
-  LEFT JOIN PlayerGame pg ON
-    pg.PlayerName = p.Owner
-    AND pg.GameId = p.GameId
-  LEFT JOIN Command c ON
-    c.SourcePlanetId = p.PlanetId
-    AND Processed IS NULL
-  GROUP BY
-    p.PlanetId,
-    OwnerDone;
+CREATE OR REPLACE VIEW vw_PlanetAllocated AS
+SELECT
+  p.*,
+  COALESCE(SUM(c.NumberOfShips), 0) AS AllocatedShips,
+  Owner || CASE
+    WHEN CommandsDone IS NOT NULL THEN '*'
+    ELSE ''
+  END AS OwnerDone,
+  pg.CommandsDone
+FROM Planet p
+LEFT JOIN PlayerGame pg ON
+  pg.PlayerName = p.Owner
+  AND pg.GameId = p.GameId
+LEFT JOIN Command c ON
+  c.SourcePlanetId = p.PlanetId
+  AND Processed IS NULL
+GROUP BY
+  p.PlanetId,
+  OwnerDone,
+  pg.CommandsDone;
 
 
 
@@ -792,6 +810,8 @@ CREATE OR REPLACE FUNCTION ShowMap(
 $$
   SELECT ShowMap(current_user, _GameId);
 $$ LANGUAGE SQL;
+
+
 
 CREATE OR REPLACE FUNCTION ShowMap(
   _Player TEXT,
@@ -935,6 +955,114 @@ BEGIN
  ) q;
 END;
 $$ LANGUAGE PLPGSQL;
+
+
+/*
+ * Purpose:
+ * Returns data for map to drive map [and planet table], [battle reports]?.
+ *
+ * Need:
+ *   Planets, with location, owner <--
+ *   Fleets w/location (fog of war here)
+ *   Playfield Size
+ *   Battle Reports
+ *
+ * GameStateRefresh(
+    _Player TEXT, <- start here!
+    _GameId INT)
+ * Objective: query fleets for a game. 
+ *            fleet->player->playergame (no!)
+ *            fleet->????
+ *
+ * Abstraction:
+    1. Must be non-trivial: check
+    2. Likely (>50% chance) to be needed elsewhere: check
+    3. Is this on topic or off topic?: check
+
+    In order to abstract, 2/3 is good enough.
+ */
+
+CREATE OR REPLACE FUNCTION FogOfWarVisible(
+  _FogOfWarMode FogOfWarMode_t,
+  _OwningPlayer TEXT,
+  _ViewingPlayer TEXT) RETURNS BOOL AS
+$$
+  SELECT 
+    _FogOfWarMode = 'ALL_VISIBLE'
+    OR (_FogOfWarMode = 'OPPONENTS_HIDDEN' AND _OwningPlayer = _ViewingPlayer)
+$$ LANGUAGE SQL IMMUTABLE;
+
+
+CREATE OR REPLACE FUNCTION GameStateRefresh(
+  _Player TEXT,
+  _GameId INT,
+  GameState OUT JSON) RETURNS JSON AS
+$$
+BEGIN
+  SELECT INTO GameState to_json(q)
+  FROM
+  (
+    SELECT 
+    (
+      SELECT array_agg(q) 
+      FROM
+      ( 
+        SELECT
+          Planetid,
+          GameId,
+          Owner,
+          Production,
+          Defense,
+          CASE 
+            WHEN FogOfWarVisible(g.FogOfWarMode, p.Owner, _Player) 
+            THEN Ships
+          END,
+          Xposition,
+          Yposition,
+          DisplayCharacter,
+          CASE 
+            WHEN FogOfWarVisible(g.FogOfWarMode, p.Owner, _Player) 
+            THEN AllocatedShips
+          END,
+          CommandsDone
+        FROM vw_PlanetAllocated p
+        JOIN Game g USING (GameId)
+        WHERE g.GameId = _GameId 
+      ) q
+    ) AS Planets,
+    (
+      SELECT array_agg(q) 
+      FROM
+      (
+        SELECT 
+          f.*,
+          MapPosition(FleetId)
+        FROM Fleet f
+        JOIN PlayerGame USING(PlayerName)
+        JOIN Game g ON g.GameId = _GameId
+        WHERE 
+          g.GameId = _GameId
+          AND 
+          (
+            (g.FogOfWarMode = 'OPPONENTS_HIDDEN' AND _Player = f.PlayerName)
+            OR g.FogOfWarMode = 'ALL_VISIBLE'
+          )
+      ) q
+    ) AS Fleets,
+    (
+      SELECT g AS game
+      FROM Game g
+      WHERE GameId = _GameId
+    ) AS Game,
+    (
+      SELECT array_agg(b) FROM Battles(_GameId, _Player) b
+    ) AS Battles
+  ) q;
+END;
+$$ LANGUAGE PLPGSQL;
+
+
+
 
 
 /*
@@ -1233,7 +1361,7 @@ $$
   JOIN Planet dp ON f.SourcePlanetId = dp.PlanetId;
 $$ LANGUAGE SQL;
 
-SELECT MapPosition(1,2,3...)  -> x:15 y:9
+-- SELECT MapPosition(1,2,3...)  -> x:15 y:9
 CREATE OR REPLACE FUNCTION MapPosition(
   _SourceXPosition INT,
   _SourceYPosition INT,
@@ -1251,7 +1379,7 @@ DECLARE
   _YWidth FLOAT8;
   _Distance INT;
   _TravelledTurns INT;
-  _Debug BOOL DEFAULT true;
+  _Debug BOOL DEFAULT false;
 BEGIN
   /* calculate the curennt x,y position */
   _Distance := Distance(
