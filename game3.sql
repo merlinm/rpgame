@@ -811,8 +811,6 @@ $$
   SELECT ShowMap(current_user, _GameId);
 $$ LANGUAGE SQL;
 
-
-
 CREATE OR REPLACE FUNCTION ShowMap(
   _Player TEXT,
   _GameId INT) RETURNS SETOF TEXT AS
@@ -832,9 +830,21 @@ DECLARE
 
   _DisplayRows TEXT[];
 
+  _Fleet BOOL;
+
+
 BEGIN
   SELECT * INTO g
   FROM Game WHERE GameId = _GameId;
+
+  CREATE TEMP TABLE Fleets AS
+  SELECT
+    (j->'mapposition'->>'xposition')::INT AS X, 
+    (j->'mapposition'->>'yposition')::INT AS Y
+  FROM 
+  (
+    SELECT PlayerFleets(_GameId, _Player) j
+  ) q;    
 
   -- max, greatest(), IF/ELSE plpgsql, CASE
   SELECT INTO _DisplayHeight
@@ -874,8 +884,18 @@ BEGIN
 
     FOR _column in 1..g.PlayFieldWidth
     LOOP
+      SELECT INTO _Fleet
+        EXISTS (
+          SELECT 1 FROM Fleets
+          WHERE 
+            X = _column
+            AND Y = _row
+        );
+      
       SELECT
-        '│ ' || DisplayCharacter || ' ' INTO _DisplayCharacter
+        '│ ' || DisplayCharacter || 
+          CASE WHEN _Fleet THEN '*' ELSE ' ' END
+        INTO _DisplayCharacter
       FROM Planet
       WHERE
         GameId = _GameId
@@ -884,7 +904,13 @@ BEGIN
 
       IF NOT FOUND
       THEN
-        _DisplayCharacter := '│   ';
+        IF _Fleet
+        THEN 
+          _DisplayCharacter := '│ * ';
+        ELSE
+          _DisplayCharacter := '│   ';
+        END IF;
+
       END IF;
 
       _DisplayRow := _DisplayRow || _DisplayCharacter;
@@ -925,6 +951,8 @@ BEGIN
   END LOOP;
 
   RETURN QUERY SELECT * FROM unnest(_MapDisplay);
+
+  DROP TABLE Fleets;
 END;
 $$ LANGUAGE PLPGSQL;
 
@@ -982,6 +1010,34 @@ $$ LANGUAGE PLPGSQL;
     In order to abstract, 2/3 is good enough.
  */
 
+
+CREATE OR REPLACE FUNCTION PlayerFleets(
+  _GameId INT, 
+  _Player TEXT) RETURNS SETOF JSON AS
+$$
+  SELECT to_json(q)
+  FROM
+  (
+    SELECT 
+      f.*,
+      MapPosition(FleetId)
+    FROM Fleet f
+    JOIN Planet p ON 
+      f.SourcePlanetId = p.PlanetId
+    JOIN PlayerGame pg USING(PlayerName)
+    JOIN Game g ON 
+      pg.GameId = g.GameId
+      AND g.GameId = p.GameId
+    WHERE 
+      g.GameId = _GameId
+      AND 
+      (
+        (g.FogOfWarMode = 'OPPONENTS_HIDDEN' AND _Player = f.PlayerName)
+        OR g.FogOfWarMode = 'ALL_VISIBLE'
+      )
+  ) q;
+$$ LANGUAGE SQL;
+
 CREATE OR REPLACE FUNCTION FogOfWarVisible(
   _FogOfWarMode FogOfWarMode_t,
   _OwningPlayer TEXT,
@@ -1031,22 +1087,10 @@ BEGIN
       ) q
     ) AS Planets,
     (
-      SELECT array_agg(q) 
+      SELECT array_agg(f) 
       FROM
       (
-        SELECT 
-          f.*,
-          MapPosition(FleetId)
-        FROM Fleet f
-        JOIN PlayerGame USING(PlayerName)
-        JOIN Game g ON g.GameId = _GameId
-        WHERE 
-          g.GameId = _GameId
-          AND 
-          (
-            (g.FogOfWarMode = 'OPPONENTS_HIDDEN' AND _Player = f.PlayerName)
-            OR g.FogOfWarMode = 'ALL_VISIBLE'
-          )
+        SELECT * FROM PlayerFleets(_GameId, _Player) f
       ) q
     ) AS Fleets,
     (
