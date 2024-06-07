@@ -192,7 +192,18 @@ CREATE TABLE Game
   Turn INT DEFAULT 1,
 
   /* Controls if/how players can see fleets in transit */
-  FogOfWarMode FogOfWarMode_t NOT NULL DEFAULT 'ALL_HIDDEN'
+  FogOfWarMode FogOfWarMode_t NOT NULL DEFAULT 'ALL_HIDDEN',
+
+  PlayerInputRequired BOOL DEFAULT true,
+
+  LastTurnChange TIMESTAMPTZ,
+
+  TurnTimeout INTERVAL DEFAULT '5 Minutes'
+
+  /* applies to real time mode only */
+  -- FleetTravelSpeedSecondsPerCell FLOAT8 DEFAULT 5;
+
+  GameTurnTime INTERVAL DEFAULT '5 Seconds'
 );
 
 
@@ -801,6 +812,20 @@ $$ LANGUAGE PLPGSQL SECURITY DEFINER;
 
 
 
+CREATE OR REPLACE FUNCTION TranslateCoordinates(
+  XPosition FLOAT8,
+  YPosition FLOAT8,
+  XCellsPerPosition INT,
+  YCellsPerPosition INT,
+  XPositionCells OUT INT,
+  YPositionCells OUT INT) RETURNS RECORD AS
+$$
+  SELECT 
+    XPosition * XCellsPerPosition,
+    YPosition * YCellsPerPosition;
+$$ LANGUAGE SQL IMMUTABLE;
+
+
 /*
  * Designed to produce groomed planet list to be shown in the interface.
  * Not authorized, presumption on correct caller arguments supplied.
@@ -839,8 +864,8 @@ BEGIN
 
   CREATE TEMP TABLE Fleets AS
   SELECT
-    (j->'mapposition'->>'xposition')::INT AS X, 
-    (j->'mapposition'->>'yposition')::INT AS Y
+    (j->'mapposition'->>'xposition')::FLOAT8::INT AS X, 
+    (j->'mapposition'->>'yposition')::FLOAT8::INT AS Y
   FROM 
   (
     SELECT PlayerFleets(_GameId, _Player) j
@@ -1314,10 +1339,8 @@ SELECT MapPosition(61);
 /* perform lookups for lower level map position function */
 CREATE OR REPLACE FUNCTION MapPosition(
   _FleetId INT,
-  _MapXCellWidth INT DEFAULT 4,
-  _MapYCellWidth INT DEFAULT 2,
-  XPosition OUT INT,
-  YPosition OUT INT) RETURNS RECORD AS
+  XPosition OUT FLOAT8,
+  YPosition OUT FLOAT8) RETURNS RECORD AS
 $$
   SELECT 
     m.*
@@ -1330,20 +1353,16 @@ $$
       source.YPosition,
       destination.XPosition,
       destination.YPosition,
-      f.TurnsLeft,
-      _MapXCellWidth,
-      _MapYCellWidth) m
+      f.TurnsLeft) m
   WHERE FleetId = _FleetId;
 $$ LANGUAGE SQL;
 
 /* Calcultes the position of the fleet on the map so that it can be displayed */
 CREATE OR REPLACE FUNCTION MapPositionAll(
   _FleetId INT,
-  _MapXCellWidth INT DEFAULT 4,
-  _MapYCellWidth INT DEFAULT 2,
   Turn OUT INT,
-  XPosition OUT INT,
-  YPosition OUT INT) RETURNS SETOF RECORD AS
+  XPosition OUT FLOAT8,
+  YPosition OUT FLOAT8) RETURNS SETOF RECORD AS
 $$
 DECLARE
   _Turn INT;
@@ -1388,10 +1407,8 @@ $$ LANGUAGE PLPGSQL;
 /* Calcultes the position of the fleet on the map so that it can be displayed */
 CREATE OR REPLACE FUNCTION MapPosition(
   _FleetId INT,
-  _MapXCellWidth INT,
-  _MapYCellWidth INT,
-  XPosition OUT INT,
-  YPosition OUT INT) RETURNS RECORD AS
+  XPosition OUT FLOAT8,
+  YPosition OUT FLOAT8) RETURNS RECORD AS
 $$
   SELECT
     MapPosition(
@@ -1412,10 +1429,8 @@ CREATE OR REPLACE FUNCTION MapPosition(
   _DestinationXPosition INT,
   _DestinationYPosition INT,
   _TurnsLeft INT,
-  _MapXCellWidth INT, -- 4 w/current map
-  _MapYCellWidth INT, -- 2 w/current map
-  XPosition OUT INT,
-  YPosition OUT INT) RETURNS RECORD AS
+  XPosition OUT FLOAT8,
+  YPosition OUT FLOAT8) RETURNS RECORD AS
 $$
 DECLARE
   _LengthRatio FLOAT8;

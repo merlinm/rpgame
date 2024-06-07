@@ -16,7 +16,10 @@ BEGIN
   PERFORM ProcessFleetArrivals(_GameId);
 
   RAISE NOTICE 'Turn advancement for GameId % done, advancing turn', _GameId;
-  UPDATE Game SET Turn = Turn + 1 WHERE GameId = _GameId;
+  UPDATE Game SET 
+    Turn = Turn + 1, 
+    LastTurnChange = clock_timestamp()
+  WHERE GameId = _GameId;
 
   UPDATE PlayerGame SET CommandsDone = NULL
   WHERE GameId = _GameId;
@@ -39,8 +42,10 @@ CREATE OR REPLACE FUNCTION AllPlayersDone(
   ReadyToAdvance OUT BOOL) RETURNS BOOL AS
 $$
 DECLARE
-  _TurnTimeout INTERVAL DEFAULT '5 minutes'::INTERVAL;
+  g Game;
 BEGIN
+  SELECT Into g * FROM Game WHERE GameId = _GameId;
+
   SELECT INTO ReadyToAdvance
     NOT EXISTS (
       SELECT 1
@@ -53,7 +58,12 @@ BEGIN
         MIN(CommandsDone)
       FROM PlayerGame
       WHERE GameId = _GameId
-    ) > _TurnTimeout;
+    ) > g.TurnTimeout
+    OR (
+      NOT g.PlayerInputRequired
+      AND clock_timestamp() - g.LastTurnChange
+      > g.TurnTimeout
+   );
 END;
 $$ LANGUAGE PLPGSQL;
 
